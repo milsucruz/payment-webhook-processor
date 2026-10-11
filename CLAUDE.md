@@ -64,6 +64,10 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 - Valores monetários em centavos, como `long`. Nunca `decimal`, `double` ou `float`.
 - Datas em UTC, com `DateTimeOffset` no código e `datetime2` no banco.
 - Identificadores, comentários, mensagens de commit, README e ADRs em inglês. Os arquivos em `docs/` ficam em inglês.
+- Nomenclatura:
+  - Todo método de produção que retorna `Task` ou `ValueTask` termina em `Async` (ex.: `ReceiveAsync`), inclusive actions de controller. Métodos de teste não levam o sufixo: o nome deles descreve o comportamento. O MVC remove o `Async` do nome da action por padrão, então `nameof(ReceiveAsync)` em `CreatedAtAction` não encontra a rota; use a rota por nome ou desligue `SuppressAsyncSuffixInActionNames`.
+  - Método async público recebe `CancellationToken cancellationToken` como último parâmetro. Exceção só com motivo escrito em comentário no código, como a action do webhook, que não pode ter parâmetros.
+  - Campos privados em `camelCase`, sem `_` (use `this.campo = campo` no construtor quando o nome colidir com o parâmetro). Interfaces com prefixo `I`. Constantes em `PascalCase` (ex.: `MaxBodyBytes`).
 - Commits no formato `type: description` (`feat`, `fix`, `test`, `docs`, `chore`, `infra`), um por tarefa quando possível.
 - Nenhum segredo no código, na imagem ou no repositório. Local usa o emulador e `dotnet user-secrets`; na nuvem, identidade gerenciada e Key Vault.
 
