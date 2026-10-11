@@ -132,4 +132,5 @@ At the end of each session, add a row. It's what the next session reads to know 
 
 | Date | Task | Status | Actual hours | Notes |
 | --- | --- | --- | --- | --- |
-| | | | | |
+| 2026-10-11 | 0.1 | Done | 0.5 | Solution with 5 layered projects; Directory.Build.props centralizes net10.0, nullable, warnings as errors |
+| 2026-10-11 | 0.2 | Done | 0.5 | Compose with SQL Server 2022 (shared by emulator and app) + SB emulator 2.0.1. Local TTL 1 h (emulator cap). Emulator on host port 5673 because of a local RabbitMQ on 5672 |
