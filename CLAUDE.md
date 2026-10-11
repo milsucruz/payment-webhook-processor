@@ -6,6 +6,7 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 
 - `docs/architecture.md`: desenho completo do sistema. Leia só as seções que a tarefa pede.
 - `docs/tasks.md`: tarefas por marco, com horas e critério de pronto. O fim do arquivo tem o registro de sessões ("Session log"), que diz onde o projeto está.
+- `docs/pending.md`: pendências encontradas numa tarefa e fora do escopo dela, com a tarefa em que devem ser resolvidas.
 - `docs/adr/`: decisões de arquitetura, em inglês. A pasta ainda não existe; os ADRs são escritos na tarefa 6.2. Até lá, a fonte das decisões é a seção 12 da arquitetura, que lista as dez.
 
 | Assunto | Seção de `docs/architecture.md` |
@@ -35,6 +36,15 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
   - **PR**: qualquer mudança em código, testes, CI, Docker/compose ou Bicep; e mudanças em documentação que alterem uma regra ou decisão (este arquivo, `docs/architecture.md`, ADRs, critérios em `docs/tasks.md`).
   - **Direto em `main`**: documentação que não muda regra nem decisão, como a linha do registro de sessões, erro de digitação ou ajuste de redação.
 - Quando for PR: branch a partir de `main`, nomeada `type/descricao-curta` (ex.: `feat/stripe-webhook-endpoint`). Com o "pronto quando" verificado e a linha do registro de sessões aprovada, faça push e abra o PR com `gh pr create`, sem pedir confirmação. Título no formato do commit; a descrição diz a tarefa, o que mudou e o comando de verificação com a saída. O merge fica comigo.
+- Algo estritamente necessário e fora do escopo da tarefa vai para `docs/pending.md`, não para o código.
+- Ao terminar a última tarefa de um marco (M0, M1, ...), revise `docs/pending.md` comigo: cada item é resolvido, vira tarefa ou é descartado com motivo.
+- Depois dessa revisão, escreva a nota de estudo do marco em `notes/mN-<nome-do-marco>-explicado.md`, no mesmo formato de `notes/m0-esqueleto-explicado.md`:
+  - Em português (exceção à regra de inglês: é nota pessoal, não versionada; `notes/` está em `.git/info/exclude`).
+  - Cabeçalho dizendo que é nota pessoal e citando as tarefas de `docs/tasks.md` e as seções da arquitetura usadas.
+  - Tabela das tarefas do marco (entrega e "pronto quando") e um parágrafo sobre o porquê da ordem.
+  - Uma seção por tarefa: o que existe (trechos curtos do código ou da configuração real), o porquê de cada escolha, as alternativas descartadas e como o "pronto quando" foi verificado.
+  - No fim, uma tabela "decisão / por quê em uma frase / origem" e uma lista de perguntas de entrevista com resposta curta.
+  - Descreva o que está no repositório, não o planejado. Se algo divergiu da arquitetura ou ficou em `docs/pending.md`, diga.
 
 ## Regras do desenho que não mudam sem ADR
 
