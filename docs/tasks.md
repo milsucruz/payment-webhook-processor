@@ -136,3 +136,4 @@ At the end of each session, add a row. It's what the next session reads to know 
 | 2026-10-11 | 0.2 | Done | 0.5 | Compose with SQL Server 2022 (shared by emulator and app) + SB emulator 2.0.1. Local TTL 1 h (emulator cap). Emulator on host port 5673 because of a local RabbitMQ on 5672 |
 | 2026-10-11 | 0.3 | Done | 0.3 | Multi-stage Dockerfiles for API and worker, wired into compose; GET on the API responds |
 | 2026-10-11 | 0.4 | Done | 0.3 | tests/Payments.Domain.Tests with a test guarding Domain's dependencies; ci.yml (restore, build, test) on PRs. PR #1 green. Integration tests and Bicep join CI in 3.5 and M4 |
+| 2026-10-11 | 0.5 | Done | 0.2 | Architecture and CLAUDE.md already in 5ad2722; clarified files not yet created (docs/adr in 6.2, tests/fixtures in 1.5, CONTEXT.md). Fresh `claude -p` answered the idempotency rule correctly, citing section 6. M0 complete |
