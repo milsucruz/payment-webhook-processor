@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Domain must stay free of project and Azure package references. -->
+
+</Project>
