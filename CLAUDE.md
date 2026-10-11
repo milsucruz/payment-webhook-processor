@@ -5,7 +5,7 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 ## Onde está o contexto
 
 - `docs/architecture.md`: desenho completo do sistema. Leia só as seções que a tarefa pede.
-- `docs/tasks.md`: tarefas por marco, com horas e critério de pronto. O fim do arquivo tem o registro de sessões ("Session log"), que diz onde o projeto está.
+- `docs/tasks.md`: tarefas por marco, com horas, critério de pronto e a coluna "Done" (✅ feita, ⬜ pendente). O fim do arquivo tem o registro de sessões ("Session log"), que diz onde o projeto está.
 - `docs/pending.md`: pendências encontradas numa tarefa e fora do escopo dela, com a tarefa em que devem ser resolvidas.
 - `docs/adr/`: decisões de arquitetura, em inglês. A pasta ainda não existe; os ADRs são escritos na tarefa 6.2. Até lá, a fonte das decisões é a seção 12 da arquitetura, que lista as dez.
 
@@ -31,10 +31,10 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 - A tarefa só termina quando o "pronto quando" dela (coluna "Done when") foi verificado rodando. Mostre o comando e a saída.
 - Se a tarefa pedir algo que contradiz a arquitetura, pare e avise. Não resolva a contradição sozinho.
 - Ao explicar o que fez, diga o porquê de cada escolha. Eu preciso conseguir defender o código em entrevista.
-- No fim da sessão, proponha a linha do registro de sessões ("Session log") em `docs/tasks.md`.
+- No fim da sessão, proponha a linha do registro de sessões ("Session log") em `docs/tasks.md` e troque o ⬜ da tarefa por ✅ na coluna "Done", no mesmo commit da linha. Só marque ✅ com o "pronto quando" verificado.
 - No plano, diga se a alteração vai por PR ou direto em `main`, com base nos critérios abaixo. Eu posso mudar a decisão ao aprovar o plano.
   - **PR**: qualquer mudança em código, testes, CI, Docker/compose ou Bicep; e mudanças em documentação que alterem uma regra ou decisão (este arquivo, `docs/architecture.md`, ADRs, critérios em `docs/tasks.md`).
-  - **Direto em `main`**: documentação que não muda regra nem decisão, como a linha do registro de sessões, erro de digitação ou ajuste de redação.
+  - **Direto em `main`**: documentação que não muda regra nem decisão, como a linha do registro de sessões e o ✅ da tarefa, erro de digitação ou ajuste de redação.
 - Quando for PR: branch a partir de `main`, nomeada `type/descricao-curta` (ex.: `feat/stripe-webhook-endpoint`). Com o "pronto quando" verificado e a linha do registro de sessões aprovada, faça push e abra o PR com `gh pr create`, sem pedir confirmação. Título no formato do commit; a descrição diz a tarefa, o que mudou e o comando de verificação com a saída. O merge fica comigo.
 - Algo estritamente necessário e fora do escopo da tarefa vai para `docs/pending.md`, não para o código.
 - Ao terminar a última tarefa de um marco (M0, M1, ...), revise `docs/pending.md` comigo: cada item é resolvido, vira tarefa ou é descartado com motivo.
