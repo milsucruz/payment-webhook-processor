@@ -6,7 +6,7 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 
 - `docs/architecture.md`: desenho completo do sistema. Leia só as seções que a tarefa pede.
 - `docs/tasks.md`: tarefas por marco, com horas e critério de pronto. O fim do arquivo tem o registro de sessões ("Session log"), que diz onde o projeto está.
-- `docs/adr/`: decisões de arquitetura, em inglês. A seção 12 da arquitetura lista as dez.
+- `docs/adr/`: decisões de arquitetura, em inglês. A pasta ainda não existe; os ADRs são escritos na tarefa 6.2. Até lá, a fonte das decisões é a seção 12 da arquitetura, que lista as dez.
 
 | Assunto | Seção de `docs/architecture.md` |
 | --- | --- |
@@ -57,7 +57,7 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 
 - xUnit. Testes de integração com Testcontainers (SQL Server e emulador do Service Bus).
 - Toda regra de domínio nasce com teste. A tabela de transições tem um caso por combinação de estado e evento.
-- Fixtures de eventos reais do Stripe ficam em `tests/fixtures` e não são editadas à mão.
+- Fixtures de eventos reais do Stripe ficam em `tests/fixtures` (criada na tarefa 1.5) e não são editadas à mão.
 
 ## Comandos
 
@@ -70,7 +70,7 @@ stripe listen --forward-to localhost:8080/webhooks/stripe
 stripe trigger payment_intent.succeeded
 ```
 
-Atualize esta seção quando um comando mudar. Ela descreve o destino a partir da tarefa 0.3; antes disso, parte dos comandos ainda não funciona.
+Atualize esta seção quando um comando mudar. Os quatro primeiros já funcionam. Os dois do Stripe dependem do endpoint `POST /webhooks/stripe` (tarefa 1.1) e só são usados de ponta a ponta na tarefa 1.5.
 
 ## Custo
 
@@ -89,4 +89,4 @@ Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-
 
 ### Domain docs
 
-Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. Neither exists yet: `docs/adr/` arrives in task 6.2, and until then the glossary is "Terms used in this document" in section 1 of `docs/architecture.md`. See `docs/agents/domain.md`.
