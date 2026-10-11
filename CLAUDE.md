@@ -32,6 +32,10 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 - Se a tarefa pedir algo que contradiz a arquitetura, pare e avise. Não resolva a contradição sozinho.
 - Ao explicar o que fez, diga o porquê de cada escolha. Eu preciso conseguir defender o código em entrevista.
 - No fim da sessão, proponha a linha do registro de sessões ("Session log") em `docs/tasks.md`.
+- No plano, diga se a alteração vai por PR ou direto em `main`, com base nos critérios abaixo. Eu posso mudar a decisão ao aprovar o plano.
+  - **PR**: qualquer mudança em código, testes, CI, Docker/compose ou Bicep; e mudanças em documentação que alterem uma regra ou decisão (este arquivo, `docs/architecture.md`, ADRs, critérios em `docs/tasks.md`).
+  - **Direto em `main`**: documentação que não muda regra nem decisão, como a linha do registro de sessões, erro de digitação ou ajuste de redação.
+- Quando for PR: branch a partir de `main`, nomeada `type/descricao-curta` (ex.: `feat/stripe-webhook-endpoint`). Com o "pronto quando" verificado e a linha do registro de sessões aprovada, faça push e abra o PR com `gh pr create`, sem pedir confirmação. Título no formato do commit; a descrição diz a tarefa, o que mudou e o comando de verificação com a saída. O merge fica comigo.
 - Algo estritamente necessário e fora do escopo da tarefa vai para `docs/pending.md`, não para o código.
 - Ao terminar a última tarefa de um marco (M0, M1, ...), revise `docs/pending.md` comigo: cada item é resolvido, vira tarefa ou é descartado com motivo.
 - Depois dessa revisão, escreva a nota de estudo do marco em `notes/mN-<nome-do-marco>-explicado.md`, no mesmo formato de `notes/m0-esqueleto-explicado.md`:
