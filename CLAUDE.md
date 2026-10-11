@@ -31,6 +31,8 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 - Se a tarefa pedir algo que contradiz a arquitetura, pare e avise. Não resolva a contradição sozinho.
 - Ao explicar o que fez, diga o porquê de cada escolha. Eu preciso conseguir defender o código em entrevista.
 - No fim da sessão, proponha a linha do registro de sessões ("Session log") em `docs/tasks.md`.
+- Cada tarefa vive numa branch própria a partir de `main`, nomeada `type/descricao-curta` (ex.: `feat/stripe-webhook-endpoint`). Nunca faça commit direto em `main`.
+- Quando o "pronto quando" estiver verificado e a linha do registro de sessões aprovada, faça push e abra o PR com `gh pr create`, sem pedir confirmação. Título no formato do commit; a descrição diz a tarefa, o que mudou e o comando de verificação com a saída. O merge fica comigo.
 
 ## Regras do desenho que não mudam sem ADR
 
