@@ -448,6 +448,8 @@ Each deploy creates a new Container Apps revision tagged with the commit. Rollin
 
 One `docker compose up` starts SQL Server, the official Service Bus emulator, the API and the worker. The Stripe CLI forwards test webhooks to the machine with `stripe listen --forward-to localhost:8080/webhooks/stripe`. Locally, authentication uses the emulator's connection strings, and switching to managed identity is configuration only.
 
+The emulator caps message time to live at 1 hour, so locally `payment-events` uses 1 hour instead of the 14 days in section 6; the cloud queue keeps 14 days. The emulator is published on host port 5673 instead of 5672 so it doesn't clash with a locally installed RabbitMQ; containers in the compose network still use `servicebus:5672`.
+
 ## 11. Solution structure and tests
 
 The solution follows a lean Clean Architecture: the domain knows nothing about Azure, and the two executables share application and infrastructure.
