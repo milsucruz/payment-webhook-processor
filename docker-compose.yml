@@ -35,5 +35,18 @@ services:
       sqlserver:
         condition: service_healthy
 
+  # Build context is the repo root because Directory.Build.props and the project references live there.
+  api:
+    build:
+      context: .
+      dockerfile: src/Payments.Api/Dockerfile
+    ports:
+      - "8080:8080"
+
+  worker:
+    build:
+      context: .
+      dockerfile: src/Payments.Worker/Dockerfile
+
 volumes:
   sqlserver-data:
