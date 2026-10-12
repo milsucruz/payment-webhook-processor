@@ -1,8 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
+  <!-- The XML file carries the actions' <summary> into the OpenAPI document. CS1591 is off
+       because CLAUDE.md, not the compiler, decides which members need a summary. -->
+  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Payments.Application\Payments.Application.csproj" />
     <ProjectReference Include="..\Payments.Infrastructure\Payments.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12" />
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.3.0" />
   </ItemGroup>
 
 </Project>
