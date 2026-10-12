@@ -1,6 +1,6 @@
 # Payment Webhook Processor (Azure) — Architecture
 
-Version of October 11, 2026. Source of truth for the system design; the tasks are in [tasks.md](tasks.md).
+Version of October 12, 2026. Source of truth for the system design; the tasks are in [tasks.md](tasks.md).
 
 ## 1. Overview
 
@@ -87,7 +87,7 @@ The API and the worker are the project's code; everything else is a managed serv
 | API | Container Apps, external ingress, 0 to 1 replica | Validates the webhook signature, publishes the event, serves the read API, hosts the SignalR hub and the dashboard files |
 | Worker | Container Apps, no ingress, 0 to 3 replicas | Consumes the event queue, applies idempotency and the state machine, writes to the database and publishes the notification |
 | `payment-events` queue | Service Bus, Basic tier | Holds events between the API and the worker; has a built-in dead-letter |
-| `payment-notifications` queue | Service Bus, Basic tier | Carries the payment-changed notice from the worker to the API; messages expire in 60 s |
+| `payment-notifications` queue | Service Bus, Basic tier | Carries the payment-changed notice from the worker to the API; messages expire in 60 s and are dropped, not dead-lettered |
 | Database | Azure SQL Database, serverless free offer | Inbox, payments and history tables |
 | Secrets | Key Vault | Webhook signing secret (`whsec_...`) and the dashboard admin key |
 | Identity | Two managed identities (API and worker) | Passwordless access to Service Bus, the database and Key Vault |
@@ -129,8 +129,8 @@ An event goes through ten steps between Stripe and the screen, and each step has
 | Publishing to the queue (step 3) | The API responds `500` | Stripe resends with increasing backoff |
 | Worker crashes before committing the transaction (steps 6 and 7) | The transaction is rolled back and the message lock expires | Service Bus delivers again |
 | Worker crashes after committing and before completing (step 8) | The event has already been applied, but the message returns to the queue | On redelivery, the inbox insert violates the primary key and the worker just completes the message |
-| Transient database error | The worker tries 3 times with increasing backoff and, if that fails, abandons the message | Service Bus delivers again, up to 5 times |
-| Permanent error (unreadable event, unknown type) | The worker sends it straight to the dead-letter with the reason | An operator, via the dashboard |
+| Transient database error | The worker makes 1 attempt plus 3 retries with increasing backoff and, if all fail, abandons the message | Service Bus delivers again, up to 5 times |
+| Permanent error (unreadable event, unknown type, impossible conflict) | The worker sends it straight to the dead-letter with the reason | An operator, via the dashboard |
 | Failure publishing the notice (step 9) | The dashboard misses one live update | The dashboard reloads state on reconnect; the data in the database is correct |
 
 The fourth case is the answer to the done-criterion question: if the worker crashes in the middle of processing, nothing is lost and nothing is applied twice.
@@ -198,7 +198,8 @@ Delivery is "at least once" on two legs, from Stripe to the API and from the que
 | Tier | Basic | Only queues are needed; no fixed monthly fee |
 | Lock duration | 60 s | Headroom for processing, which takes milliseconds, and for the database to resume from pause |
 | Max delivery count | 5 | After that the message goes to the dead-letter |
-| Time to live | 14 days | Expired messages also go to the dead-letter |
+| Time to live | 14 days | Long enough for any outage the project expects |
+| Dead-letter on expiration | On | The default is off, which silently drops expired messages; NFR3 depends on this setting. `payment-notifications` keeps it off, because its notices expire on purpose |
 | Concurrent calls per replica | 4 | Limits pressure on the free database |
 | Auto-complete | Off | The worker completes the message only after committing the transaction |
 
@@ -230,18 +231,21 @@ Additional rules:
 - **Event for an unknown payment:** the worker creates the payment already in the event's state. A "paid" that arrives before "created" works.
 - **Event that would regress the state:** it is recorded in the history as ignored as out of order and counted in a metric. Between states of the same level, only the switch between requires action and processing is allowed.
 - **Refunds:** the refunded amount never decreases. A second partial refund updates the amount and keeps the level.
-- **Impossible conflict:** "paid" for a canceled payment, or the reverse, goes to the dead-letter with its own reason, because it signals a broken assumption.
+- **Final states:** canceled and refunded accept no transition, whatever the level of the event. Apart from the impossible conflicts below, an event of a lower level is ignored as out of order, and the same event again is redundant. This rule takes precedence over the levels: without it, a `charge.refunded` (level 4) would be applied to a canceled payment (level 3).
+- **Impossible conflict:** "paid" or a refund for a canceled payment, or "canceled" for a payment that was paid (paid, partially refunded or refunded), goes to the dead-letter with its own reason, because it signals a broken assumption.
 
 ### Concurrency between replicas
 
-Two events for the same payment may be processed at the same time by different replicas. The `RowVersion` column makes the second write fail, and the worker retries processing that event from the read. Service Bus sessions would solve this with per-payment ordering, but they require the Standard tier.
+Two events for the same payment may be processed at the same time by different replicas. When the payment already exists, the `RowVersion` column makes the second write fail. When it doesn't exist yet, both replicas try to insert it and the second insert violates the primary key of `Payments`. The worker treats both cases as a concurrency conflict: it rolls back and retries processing that event from the read, where it now finds the payment.
+
+A primary key violation on `InboxEvents` means something else: the event was already processed, so it is a duplicate and the message is completed. The worker tells the two apart by the table of the violated key. Service Bus sessions would avoid the conflict with per-payment ordering, but they require the Standard tier.
 
 ### Retry and dead-letter
 
-- **Transient error:** three attempts inside the worker, waiting 200 ms, 1 s and 5 s. If it persists, the worker abandons the message and Service Bus delivers it again.
+- **Transient error:** 1 attempt plus 3 retries inside the worker, waiting 200 ms, 1 s and 5 s before each retry. If it persists, the worker abandons the message and Service Bus delivers it again.
 - **Permanent error:** the worker dead-letters the message immediately, with reason and description. Retrying wouldn't help.
 - **Reprocessing:** the dashboard lists the dead-letter without removing the messages. The reprocess button receives the message, publishes a copy to the main queue, and completes the original.
-- **Alert:** an Azure Monitor rule sends an email when the dead-letter count goes above zero.
+- **Alert:** an Azure Monitor rule sends an email when the dead-letter count of `payment-events` goes above zero.
 
 ### Worker scaling
 
@@ -307,12 +311,17 @@ No Azure service is accessed with a password or a key-based connection string. T
 | Worker | Database | `db_datareader` and `db_datawriter` |
 | Migration job | Database | `db_ddladmin`, plus read and write |
 | Pipeline (GitHub Actions) | Resource group | Contributor, via OIDC federated credential |
+| Pipeline (GitHub Actions) | Resource group | Role Based Access Control Administrator, with a condition that only allows assigning Azure Service Bus Data Sender, Azure Service Bus Data Receiver and Key Vault Secrets User |
 
 Roles are assigned at the scope of each queue, not the whole namespace. The API cannot write to the database, which limits the damage if the public endpoint is compromised.
 
+The pipeline needs the second role because the Bicep creates the role assignments, and Contributor has no `Microsoft.Authorization/roleAssignments/write`. The condition keeps it from granting itself or anyone else Owner.
+
 ### Passwordless database
 
-The SQL server has an Entra ID admin and password authentication turned off. Each identity becomes a contained user, created with `CREATE USER [name] FROM EXTERNAL PROVIDER`. The connection string uses `Authentication=Active Directory Default`, which works with the managed identity in the cloud and with `az login` on the local machine.
+The SQL server has an Entra ID admin and password authentication turned off. Each identity becomes a contained user, created with `CREATE USER [name] FROM EXTERNAL PROVIDER`. The developer runs those statements once, signed in as the Entra ID admin, in a setup step after the first Bicep deploy; the pipeline has no access to the database's data plane. This is the one exception to NFR7: the statements live in a versioned script under `infra/`, so recreating the environment is the Bicep plus that script. The connection string uses `Authentication=Active Directory Default`, which works with the managed identity in the cloud and with `az login` when the developer connects to the cloud database.
+
+The local environment doesn't use Entra ID: the database is the SQL Server in the compose file, with SQL authentication as `sa`. Its password lives in `.env`, which is git-ignored and filled from `.env.example`, so it never reaches the code, the image or the repository (NFR5).
 
 ### Secrets in Key Vault
 
@@ -336,11 +345,11 @@ The dashboard is public and read-only, because all the data is test data. Action
 
 ### Secretless pipeline
 
-GitHub Actions authenticates to Azure via OIDC, with a federated credential restricted to the repository and the `main` branch. No long-lived secret is stored in GitHub.
+GitHub Actions authenticates to Azure via OIDC, with a federated credential restricted to the repository and the `main` branch. No long-lived secret is stored in GitHub. Pull request runs don't match that credential, so `ci.yml` never signs in to Azure; everything that needs Azure, `what-if` included, runs in `deploy.yml`.
 
 ## 9. Observability
 
-A single trace covers the event's entire path, and four custom metrics show what the system did with each one.
+A single trace covers the event's entire path, and five custom metrics show what the system did with each one.
 
 ### Instrumentation
 
@@ -350,14 +359,14 @@ A single trace covers the event's entire path, and four custom metrics show what
 | Logs | Structured Serilog, with trace ID and event ID on every line | JSON console and Application Insights |
 | Metrics | `System.Diagnostics.Metrics` exported via OpenTelemetry | Application Insights |
 
-The API and the worker use the Azure Monitor exporter for OpenTelemetry. The Service Bus SDK propagates trace context in the message properties, so the worker's span shows up linked to the API's span with no extra code.
+The API and the worker use the Azure Monitor exporter for OpenTelemetry. The Service Bus SDK propagates trace context in the message properties, so the worker's span shows up linked to the API's span. The SDK's tracing is still experimental in .NET: it needs the `Azure.Experimental.EnableActivitySource` switch on and `AddSource("Azure.*")` in the OpenTelemetry setup.
 
 ### Spans of an event
 
 1. `POST /webhooks/stripe` in the API.
 2. Send to `payment-events`.
 3. Message processing in the worker.
-4. SQL transaction.
+4. Database transaction: a manual span from the worker's own `ActivitySource`, because SqlClient creates one span per command, not per transaction. The command spans show up as its children.
 5. Send to `payment-notifications`.
 6. Notice consumption and hub send in the API.
 
@@ -373,7 +382,7 @@ The API and the worker use the Azure Monitor exporter for OpenTelemetry. The Ser
 
 ### Alerts
 
-- **Dead-letter above zero:** Service Bus metric, with email.
+- **Dead-letter above zero:** Service Bus metric, filtered to `payment-events`, with email.
 - **Webhook failures:** more than 5 `5xx` responses in 5 minutes.
 
 ### Volume control
@@ -391,7 +400,7 @@ The database is deliberately left out of the API's readiness check: it may be pa
 
 ## 10. Infrastructure, cost and deploy
 
-All infrastructure is created by Bicep and fits within the free allowances, except for Service Bus and Key Vault, which charge cents per operation.
+All infrastructure is created by Bicep and fits within the free allowances, except for Service Bus, billed per million operations, and Key Vault, billed per 10,000 operations. Both come to cents at this volume.
 
 ### Resources and cost
 
@@ -401,7 +410,7 @@ All infrastructure is created by Bicep and fits within the free allowances, exce
 | Service Bus | Basic | Billed per million operations, no fixed fee ([pricing](https://azure.microsoft.com/en-us/pricing/details/service-bus/)) |
 | Azure SQL Database | Free offer, serverless | 100,000 vCore-seconds and 32 GB per month, for the life of the subscription ([documentation](https://learn.microsoft.com/en-us/azure/azure-sql/database/free-offer)) |
 | Application Insights and Log Analytics | Pay as you go | First 5 GB of ingestion per month free |
-| Key Vault | Standard | Billed per operation; cents at this volume |
+| Key Vault | Standard | Billed per 10,000 operations; cents at this volume |
 | GitHub Container Registry | Public repository | Free |
 | Azure SignalR Service (optional milestone) | Free | 20 concurrent connections and 20,000 messages per day ([pricing](https://azure.microsoft.com/en-us/pricing/details/signalr-service/)) |
 
@@ -439,18 +448,24 @@ New Azure accounts get US$ 200 of credit for 30 days, which covers any overrun d
 
 | Workflow | Trigger | Steps |
 | --- | --- | --- |
-| `ci.yml` | Pull request | Build, unit tests, integration tests with Testcontainers, `bicep build` and `what-if` |
-| `deploy.yml` | Push to `main` | Build the images, push to GHCR tagged with the commit, deploy the Bicep, run the migration job, update the revisions |
+| `ci.yml` | Pull request | Build, unit tests, integration tests with Testcontainers and `bicep build`; no Azure sign-in |
+| `deploy.yml` | Push to `main` | Build the images and push to GHCR tagged with the commit; `what-if`; deploy the Bicep with the new tag on the migration job only, keeping the API and the worker on the running tag, read from the active revision with `az containerapp show`; run the migration job; update the API and the worker to the new tag |
+
+`what-if` runs after the merge, so it only records the diff in the deploy log; it doesn't block anything. The review before the merge is the pull request itself.
+
+The migration runs before the new code, so the new code never meets an old schema. The old code does meet the new schema while the migration job runs, so every migration must stay compatible with the previous revision: add columns and tables first, remove them in a later deploy.
+
+The first deploy has no running tag. There the Bicep uses the new tag everywhere, and the migration job runs right after it; until then the worker fails its first deliveries and Service Bus redelivers them, and nothing reaches the endpoint before the Stripe registration in task 4.9.
 
 Each deploy creates a new Container Apps revision tagged with the commit. Rolling back means reactivating the previous revision.
 
 ### Local environment
 
-One `docker compose up` starts SQL Server, the official Service Bus emulator, the API and the worker. The Stripe CLI forwards test webhooks to the machine with `stripe listen --events <types> --forward-to localhost:8080/webhooks/stripe`, where `<types>` is the comma-separated list of subscribed event types from section 2; since CLI 1.53, `listen` requires the list. Locally, authentication uses the emulator's connection strings, and switching to managed identity is configuration only.
+One `docker compose up` starts SQL Server, the official Service Bus emulator, the API and the worker. The Stripe CLI forwards test webhooks to the machine with `stripe listen --events <types> --forward-to localhost:8080/webhooks/stripe`, where `<types>` is the comma-separated list of subscribed event types from section 2. CLI 1.53.1 refuses to start without it (`must specify events to forward using --events, --all-snapshot, or --all-thin`), and the list keeps the local endpoint equal to the cloud one. Locally, authentication uses the emulator's connection strings, and switching to managed identity is configuration only.
 
 The API runs as `Development` locally, which exposes the OpenAPI document at `/openapi/v1.json` and Swagger UI at `/swagger`. Neither is mapped outside `Development`, so the public endpoint in the cloud doesn't publish the API description.
 
-The emulator caps message time to live at 1 hour, so locally `payment-events` uses 1 hour instead of the 14 days in section 6; the cloud queue keeps 14 days. The emulator is published on host port 5673 instead of 5672 so it doesn't clash with a locally installed RabbitMQ; containers in the compose network still use `servicebus:5672`.
+The emulator caps message time to live at 1 hour, so locally `payment-events` uses 1 hour instead of the 14 days in section 6; the cloud queue keeps 14 days. Dead-lettering on expiration is on for `payment-events` and off for `payment-notifications`, in the emulator's `config.json` as in the Bicep. The emulator is published on host port 5673 instead of 5672 so it doesn't clash with a locally installed RabbitMQ; containers in the compose network still use `servicebus:5672`.
 
 ## 11. Solution structure and tests
 
@@ -482,7 +497,7 @@ The controller and the worker are adapters. They translate HTTP or a queue messa
 | Unit, domain | xUnit | Every combination of current state and event in the transition table |
 | Unit, application | xUnit with in-memory test doubles | `ReceiveStripeEvent` results and logs; duplicate, unknown payment, concurrency conflict and partial refund |
 | Property | xUnit with generated permutations | Any order and any repetition of a valid event sequence leads to the same final state |
-| Integration | Testcontainers with SQL Server and the Service Bus emulator | A duplicate delivery writes one row; a poison message reaches the dead-letter after 5 deliveries; a crash after commit doesn't duplicate |
+| Integration | Testcontainers with SQL Server and the Service Bus emulator | A duplicate delivery writes one row; a poison message reaches the dead-letter after 5 deliveries, while an impossible conflict ("paid" for a canceled payment) reaches it on the first delivery; a crash after commit doesn't duplicate |
 | API | `WebApplicationFactory` | An invalid signature returns `400`; a valid signature returns `200` and publishes a message |
 | Contract | JSON files of real Stripe events in `tests/fixtures` | The parser accepts the format Stripe actually sends |
 
@@ -505,7 +520,7 @@ Ten decisions define the project. Each becomes a short ADR in `docs/adr/`, in En
 | --- | --- | --- | --- |
 | 1 | Queue between the API and the worker | Processing inside the webhook request | Stripe requires a fast response and recommends a queue; spikes don't take down the endpoint; ingestion doesn't depend on the database |
 | 2 | Service Bus instead of Storage Queues | Storage Queues, Event Grid | Native dead-letter, peek-lock and delivery count; it's the messaging service the study plan wants to cover |
-| 3 | Basic tier with idempotency in the application | Standard with duplicate detection and sessions | No fixed fee; broker detection has a time window and doesn't cover Stripe resending days later; the inbox covers both legs |
+| 3 | Basic tier with idempotency in the application | Standard with duplicate detection and sessions | The inbox is needed anyway: broker detection only acts when a message is sent, so it doesn't protect against the queue redelivering a message to the worker after a crash between commit and completion. With a window of up to 7 days it would catch Stripe's resends, but the inbox already covers both legs, so Standard's fixed fee would buy nothing |
 | 4 | No outbox on ingestion | Write the event to the database and publish via a relay | Stripe is already the durable source and resends; an outbox here would duplicate that guarantee |
 | 5 | Tolerate out-of-order delivery with state levels | Sessions for ordering; fetching the current state from the Stripe API on every event | Stripe doesn't guarantee order at the source, so ordering in the queue doesn't solve it; calling the API couples the worker to Stripe's availability and rate limits |
 | 6 | Snapshot events | Thin events, which Stripe recommends for new integrations | The snapshot carries the full object, avoids an extra call and allows file-based tests; out-of-order delivery is already handled by decision 5 |
@@ -543,17 +558,20 @@ The order puts the cloud after the logic on purpose. From M0 to M3 everything ru
 
 ## 14. Risks, open questions and interview questions
 
-Five points need to be validated early, because a surprise in any of them changes the design.
+Eight points need to be validated early, because a surprise in any of them changes the design.
 
 ### Risks to validate
 
 | Risk | When to validate | Plan B |
 | --- | --- | --- |
 | An open SignalR connection may not keep the API replica from scaling to zero | M5 | Minimum replica of 1 during demos |
-| The role the KEDA rule needs to read the queue length may be broader than Data Receiver | M4 | Assign the role indicated in the KEDA docs to that identity only |
+| The role the KEDA rule needs to read the queue length may be broader than Data Receiver | M4 | Assign the role indicated in the KEDA docs to that identity only, and add it to the roles the pipeline's condition allows (section 8) |
 | The API's cold start may exceed Stripe's response timeout | M4 | Stripe resends; if it becomes a nuisance, minimum replica of 1 |
 | A paused database delays the first event by tens of seconds | M4 | The 60 s lock and the retry cover it; if not enough, increase the lock duration |
 | The Service Bus emulator may behave differently from the cloud in delivery counting | M3 | Also run the dead-letter tests against the real namespace in the pipeline |
+| Service Bus may not receive a specific dead-letter message by ID; only deferred messages are received by sequence number | M3 | The reprocess endpoint receives a batch from the dead-letter, republishes and completes the matching message, and abandons the others |
+| The pipeline may need more roles than Contributor and the conditioned Role Based Access Control Administrator | M4 | Add the missing role at the narrowest scope and record it in section 8 |
+| The Service Bus SDK may not link the worker's span to the API's even with the experimental `ActivitySource` switch on | M5 | Read `Diagnostic-Id` from the message properties and start the worker's span with that parent by hand |
 
 ### Open questions
 
