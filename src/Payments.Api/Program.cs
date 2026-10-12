@@ -1,6 +1,15 @@
+using Payments.Infrastructure.Webhooks;
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
+
+builder.Services.AddOptions<StripeOptions>()
+    .BindConfiguration(StripeOptions.SectionName)
+    .Validate(options => !string.IsNullOrWhiteSpace(options.WebhookSecret), "Stripe:WebhookSecret is required.")
+    .ValidateOnStart();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<IWebhookSignatureVerifier, StripeWebhookSignatureVerifier>();
 builder.Services.AddHealthChecks();
 builder.Services.AddOpenApi();
 

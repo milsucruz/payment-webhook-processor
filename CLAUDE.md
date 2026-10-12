@@ -83,7 +83,7 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 ## Comandos
 
 ```bash
-cp .env.example .env            # uma vez; preencha MSSQL_SA_PASSWORD
+cp .env.example .env            # uma vez; preencha MSSQL_SA_PASSWORD e STRIPE_WEBHOOK_SECRET
 docker compose up -d            # SQL Server, emulador do Service Bus, API e worker
 dotnet build
 dotnet test
