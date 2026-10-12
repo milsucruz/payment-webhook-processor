@@ -130,7 +130,7 @@ An event goes through ten steps between Stripe and the screen, and each step has
 | Worker crashes before committing the transaction (steps 6 and 7) | The transaction is rolled back and the message lock expires | Service Bus delivers again |
 | Worker crashes after committing and before completing (step 8) | The event has already been applied, but the message returns to the queue | On redelivery, the inbox insert violates the primary key and the worker just completes the message |
 | Transient database error | The worker makes 1 attempt plus 3 retries with increasing backoff and, if all fail, abandons the message | Service Bus delivers again, up to 5 times |
-| Permanent error (unreadable event, unknown type) | The worker sends it straight to the dead-letter with the reason | An operator, via the dashboard |
+| Permanent error (unreadable event, unknown type, impossible conflict) | The worker sends it straight to the dead-letter with the reason | An operator, via the dashboard |
 | Failure publishing the notice (step 9) | The dashboard misses one live update | The dashboard reloads state on reconnect; the data in the database is correct |
 
 The fourth case is the answer to the done-criterion question: if the worker crashes in the middle of processing, nothing is lost and nothing is applied twice.
@@ -232,7 +232,7 @@ Additional rules:
 - **Event that would regress the state:** it is recorded in the history as ignored as out of order and counted in a metric. Between states of the same level, only the switch between requires action and processing is allowed.
 - **Refunds:** the refunded amount never decreases. A second partial refund updates the amount and keeps the level.
 - **Final states:** canceled and refunded accept no transition, whatever the level of the event. Apart from the impossible conflicts below, an event of a lower level is ignored as out of order, and the same event again is redundant. This rule takes precedence over the levels: without it, a `charge.refunded` (level 4) would be applied to a canceled payment (level 3).
-- **Impossible conflict:** "paid" or a refund for a canceled payment, or "canceled" for a paid or refunded payment, goes to the dead-letter with its own reason, because it signals a broken assumption.
+- **Impossible conflict:** "paid" or a refund for a canceled payment, or "canceled" for a payment that was paid (paid, partially refunded or refunded), goes to the dead-letter with its own reason, because it signals a broken assumption.
 
 ### Concurrency between replicas
 
@@ -319,7 +319,7 @@ The pipeline needs the second role because the Bicep creates the role assignment
 
 ### Passwordless database
 
-The SQL server has an Entra ID admin and password authentication turned off. Each identity becomes a contained user, created with `CREATE USER [name] FROM EXTERNAL PROVIDER`. The developer runs those statements once, signed in as the Entra ID admin, in a setup step after the first Bicep deploy; the pipeline has no access to the database's data plane. The connection string uses `Authentication=Active Directory Default`, which works with the managed identity in the cloud and with `az login` when the developer connects to the cloud database.
+The SQL server has an Entra ID admin and password authentication turned off. Each identity becomes a contained user, created with `CREATE USER [name] FROM EXTERNAL PROVIDER`. The developer runs those statements once, signed in as the Entra ID admin, in a setup step after the first Bicep deploy; the pipeline has no access to the database's data plane. This is the one exception to NFR7: the statements live in a versioned script under `infra/`, so recreating the environment is the Bicep plus that script. The connection string uses `Authentication=Active Directory Default`, which works with the managed identity in the cloud and with `az login` when the developer connects to the cloud database.
 
 The local environment doesn't use Entra ID: the database is the SQL Server in the compose file, with SQL authentication as `sa`. Its password lives in `.env`, which is git-ignored and filled from `.env.example`, so it never reaches the code, the image or the repository (NFR5).
 
@@ -453,6 +453,8 @@ New Azure accounts get US$ 200 of credit for 30 days, which covers any overrun d
 
 The migration runs before the new code, so the new code never meets an old schema. The old code does meet the new schema while the migration job runs, so every migration must stay compatible with the previous revision: add columns and tables first, remove them in a later deploy.
 
+The first deploy has no running tag. There the Bicep uses the new tag everywhere, and the migration job runs right after it; until then the worker fails its first deliveries and Service Bus redelivers them, and nothing reaches the endpoint before the Stripe registration in task 4.9.
+
 Each deploy creates a new Container Apps revision tagged with the commit. Rolling back means reactivating the previous revision.
 
 ### Local environment
@@ -516,7 +518,7 @@ Ten decisions define the project. Each becomes a short ADR in `docs/adr/`, in En
 | --- | --- | --- | --- |
 | 1 | Queue between the API and the worker | Processing inside the webhook request | Stripe requires a fast response and recommends a queue; spikes don't take down the endpoint; ingestion doesn't depend on the database |
 | 2 | Service Bus instead of Storage Queues | Storage Queues, Event Grid | Native dead-letter, peek-lock and delivery count; it's the messaging service the study plan wants to cover |
-| 3 | Basic tier with idempotency in the application | Standard with duplicate detection and sessions | No fixed fee, and Basic has no duplicate detection anyway; broker detection only acts when a message is sent, so it doesn't protect against the queue redelivering a message to the worker after a crash between commit and completion, which is the case the inbox covers |
+| 3 | Basic tier with idempotency in the application | Standard with duplicate detection and sessions | The inbox is needed anyway: broker detection only acts when a message is sent, so it doesn't protect against the queue redelivering a message to the worker after a crash between commit and completion. With a window of up to 7 days it would catch Stripe's resends, but the inbox already covers both legs, so Standard's fixed fee would buy nothing |
 | 4 | No outbox on ingestion | Write the event to the database and publish via a relay | Stripe is already the durable source and resends; an outbox here would duplicate that guarantee |
 | 5 | Tolerate out-of-order delivery with state levels | Sessions for ordering; fetching the current state from the Stripe API on every event | Stripe doesn't guarantee order at the source, so ordering in the queue doesn't solve it; calling the API couples the worker to Stripe's availability and rate limits |
 | 6 | Snapshot events | Thin events, which Stripe recommends for new integrations | The snapshot carries the full object, avoids an extra call and allows file-based tests; out-of-order delivery is already handled by decision 5 |
@@ -561,7 +563,7 @@ Eight points need to be validated early, because a surprise in any of them chang
 | Risk | When to validate | Plan B |
 | --- | --- | --- |
 | An open SignalR connection may not keep the API replica from scaling to zero | M5 | Minimum replica of 1 during demos |
-| The role the KEDA rule needs to read the queue length may be broader than Data Receiver | M4 | Assign the role indicated in the KEDA docs to that identity only |
+| The role the KEDA rule needs to read the queue length may be broader than Data Receiver | M4 | Assign the role indicated in the KEDA docs to that identity only, and add it to the roles the pipeline's condition allows (section 8) |
 | The API's cold start may exceed Stripe's response timeout | M4 | Stripe resends; if it becomes a nuisance, minimum replica of 1 |
 | A paused database delays the first event by tens of seconds | M4 | The 60 s lock and the retry cover it; if not enough, increase the lock duration |
 | The Service Bus emulator may behave differently from the cloud in delivery counting | M3 | Also run the dead-letter tests against the real namespace in the pipeline |

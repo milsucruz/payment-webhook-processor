@@ -81,7 +81,7 @@ At the end of M3 the system is complete on the local machine. It's a good point 
 | :---: | --- | --- | --- | --- |
 | ⬜ | 4.1 | Create the Azure account: MFA, a US$ 5 budget with alerts, resource group and region | 0.5 to 1 | The budget alert is active before any resource exists |
 | ⬜ | 4.2 | Bicep: managed identities, Service Bus Basic with both queues and per-queue roles; dead-letter on expiration on for `payment-events` and off for `payment-notifications` | 1 to 2 | `what-if` comes out clean and the deploy creates the namespace and the queues, with dead-letter on expiration only on `payment-events` |
-| ⬜ | 4.3 | Bicep: free SQL database with an Entra ID admin; the developer, signed in as the Entra ID admin, creates the contained users for the identities | 1 to 2 | Passwordless connection works with `az login`, and the option to pause when the free allowance runs out is on |
+| ⬜ | 4.3 | Bicep: free SQL database with an Entra ID admin; the developer, signed in as the Entra ID admin, creates the contained users for the identities with a versioned script in `infra/` | 1 to 2 | Passwordless connection works with `az login`, and the option to pause when the free allowance runs out is on |
 | ⬜ | 4.4 | Bicep: Key Vault, Log Analytics with a daily cap, and Application Insights | 1 | The secrets are stored and the 0.2 GB cap is configured |
 | ⬜ | 4.5 | Bicep: Container Apps environment, API, worker and migration job, with images from GHCR and secrets referenced from Key Vault | 2 to 3 | `/health/live` responds at the public address |
 | ⬜ | 4.6 | Replace connection strings with managed identity for Service Bus and SQL, through configuration only | 1 to 2 | No service secret appears in the container variables, and the worker writes to the database |
