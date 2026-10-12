@@ -1,0 +1,2 @@
+# Real Stripe payloads: keep their bytes exactly as received, no line-ending conversion.
+tests/fixtures/** -text
