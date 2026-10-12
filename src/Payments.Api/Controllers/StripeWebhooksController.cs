@@ -35,7 +35,6 @@ public class StripeWebhooksController : ControllerBase
         var verification = this.signatureVerifier.Verify(payload, Request.Headers["Stripe-Signature"]);
         if (!verification.IsValid)
         {
-            // The reason goes to the log only; the caller gets a bare 400.
             this.logger.LogWarning("Rejected Stripe webhook: {Reason}", verification.FailureReason);
             return BadRequest();
         }

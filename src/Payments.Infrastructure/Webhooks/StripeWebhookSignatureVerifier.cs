@@ -3,10 +3,8 @@ using Stripe;
 
 namespace Payments.Infrastructure.Webhooks;
 
-// Details: docs/code/StripeWebhookSignatureVerifier.md
 public class StripeWebhookSignatureVerifier : IWebhookSignatureVerifier
 {
-    // Architecture section 8: 5-minute tolerance against replay.
     public const long ToleranceSeconds = 300;
 
     private readonly string secret;
@@ -27,7 +25,6 @@ public class StripeWebhookSignatureVerifier : IWebhookSignatureVerifier
 
         try
         {
-            // Signature only, no parsing: the event stays raw JSON until the worker reads it.
             EventUtility.ValidateSignature(
                 payload,
                 signatureHeader,

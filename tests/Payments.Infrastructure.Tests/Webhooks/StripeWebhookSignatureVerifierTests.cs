@@ -6,7 +6,6 @@ namespace Payments.Infrastructure.Tests.Webhooks;
 
 public class StripeWebhookSignatureVerifierTests
 {
-    // Not a real secret: any whsec_ value works, since the tests sign with it too.
     private const string Secret = "whsec_test_secret";
     private const string Payload = """{"id":"evt_test_1","type":"payment_intent.succeeded","data":{"object":{"id":"pi_test_1","amount":2000}}}""";
 
@@ -100,7 +99,6 @@ public class StripeWebhookSignatureVerifierTests
     [Fact]
     public void Header_with_two_signatures_is_accepted_when_one_matches()
     {
-        // During a secret rotation Stripe signs with both secrets, so one of the v1 values is unknown to us.
         var timestamp = SecondsAgo(0);
         var header = $"t={timestamp},"
             + $"v1={StripeSignatureHelper.ComputeV1(Payload, "whsec_old_secret", timestamp)},"

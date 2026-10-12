@@ -3,8 +3,6 @@ using System.Text;
 
 namespace Payments.Infrastructure.Tests.Webhooks;
 
-// Builds Stripe-Signature values from Stripe's published scheme, independently of Stripe.net:
-// v1 = hex(HMAC-SHA256(secret, "{timestamp}.{payload}")).
 public static class StripeSignatureHelper
 {
     public static string ComputeV1(string payload, string secret, long timestamp)

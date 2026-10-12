@@ -49,4 +49,4 @@ Locally, the value is the `whsec_...` that `stripe listen` prints.
 
 ## Tests
 
-`tests/Payments.Infrastructure.Tests/Webhooks`. The tests build signatures with their own HMAC helper that follows Stripe's published scheme, not with Stripe.net, so they check the library against the spec instead of against itself.
+`tests/Payments.Infrastructure.Tests/Webhooks`. The tests build signatures with their own HMAC helper that follows Stripe's published scheme, not with Stripe.net, so they check the library against the spec instead of against itself. The test secret is a fake `whsec_` literal: the tests sign with it too, so any value works. The case with two `v1` values, where only one matches, covers the secret rotation described above.
