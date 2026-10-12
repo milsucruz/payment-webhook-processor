@@ -10,12 +10,12 @@ public class StripeWebhookSignatureVerifierTests
     private const string Secret = "whsec_test_secret";
     private const string Payload = """{"id":"evt_test_1","type":"payment_intent.succeeded","data":{"object":{"id":"pi_test_1","amount":2000}}}""";
 
-    private static readonly DateTimeOffset Now = new(2026, 10, 12, 12, 0, 0, TimeSpan.Zero);
+    private static readonly DateTimeOffset now = new(2026, 10, 12, 12, 0, 0, TimeSpan.Zero);
 
     private static StripeWebhookSignatureVerifier CreateVerifier() =>
-        new(Options.Create(new StripeOptions { WebhookSecret = Secret }), new FixedTimeProvider(Now));
+        new(Options.Create(new StripeOptions { WebhookSecret = Secret }), new FixedTimeProvider(now));
 
-    private static long SecondsAgo(long seconds) => Now.ToUnixTimeSeconds() - seconds;
+    private static long SecondsAgo(long seconds) => now.ToUnixTimeSeconds() - seconds;
 
     [Fact]
     public void Valid_signature_is_accepted()
