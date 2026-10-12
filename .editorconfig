@@ -21,9 +21,11 @@ dotnet_sort_system_directives_first = true
 csharp_using_directive_placement = outside_namespace:warning
 
 # Types and expressions
-csharp_style_var_for_built_in_types = true:suggestion
-csharp_style_var_when_type_is_apparent = true:suggestion
-csharp_style_var_elsewhere = true:suggestion
+# CLAUDE.md: never var, always the explicit type. IDE0008 needs its own severity to fail `dotnet build`.
+csharp_style_var_for_built_in_types = false:warning
+csharp_style_var_when_type_is_apparent = false:warning
+csharp_style_var_elsewhere = false:warning
+dotnet_diagnostic.IDE0008.severity = warning
 dotnet_style_predefined_type_for_locals_parameters_members = true:warning
 csharp_prefer_braces = true:warning
 

@@ -7,7 +7,7 @@ public static class StripeSignatureHelper
 {
     public static string ComputeV1(string payload, string secret, long timestamp)
     {
-        var hash = HMACSHA256.HashData(
+        byte[] hash = HMACSHA256.HashData(
             Encoding.UTF8.GetBytes(secret),
             Encoding.UTF8.GetBytes($"{timestamp}.{payload}"));
 

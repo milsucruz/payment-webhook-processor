@@ -62,6 +62,7 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 
 - .NET 10 e C# com nullable habilitado e avisos tratados como erro.
 - Controllers padrão, sem Minimal API. Sem MediatR e sem biblioteca paga ou de licença comercial.
+- Nunca `var`, em nenhum caso: toda variável declara o tipo explícito (`string payload = ...`). Com `new`, use o `new(...)` com tipo alvo (`StreamReader reader = new(...)`). O `.editorconfig` faz o build falhar com `var` (IDE0008).
 - Valores monetários em centavos, como `long`. Nunca `decimal`, `double` ou `float`.
 - Datas em UTC, com `DateTimeOffset` no código e `datetime2` no banco.
 - Identificadores, comentários, mensagens de commit, README e ADRs em inglês. Os arquivos em `docs/` ficam em inglês.
@@ -86,12 +87,13 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 cp .env.example .env            # uma vez; preencha MSSQL_SA_PASSWORD e STRIPE_WEBHOOK_SECRET
 docker compose up -d            # SQL Server, emulador do Service Bus, API e worker
 dotnet build
-dotnet test
+dotnet test --filter "FullyQualifiedName!~Payments.IntegrationTests"   # testes de unidade, sem Docker
+dotnet test tests/Payments.IntegrationTests                             # integração; precisa do Docker rodando
 stripe listen --forward-to localhost:8080/webhooks/stripe
 stripe trigger payment_intent.succeeded
 ```
 
-Atualize esta seção quando um comando mudar. Os quatro primeiros já funcionam. Os dois do Stripe dependem do endpoint `POST /webhooks/stripe` (tarefa 1.1) e só são usados de ponta a ponta na tarefa 1.5.
+Atualize esta seção quando um comando mudar. Os cinco primeiros já funcionam. Os dois do Stripe dependem do endpoint `POST /webhooks/stripe` (tarefa 1.1) e só são usados de ponta a ponta na tarefa 1.5.
 
 ## Custo
 
