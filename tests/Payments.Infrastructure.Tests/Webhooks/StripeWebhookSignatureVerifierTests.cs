@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.Extensions.Options;
+using Payments.Application.Webhooks;
 using Payments.Infrastructure.Webhooks;
 
 namespace Payments.Infrastructure.Tests.Webhooks;

@@ -1,6 +1,7 @@
 using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Options;
 using Payments.Application.Messaging;
+using Payments.Application.Webhooks;
 using Payments.Infrastructure.Messaging;
 using Payments.Infrastructure.Webhooks;
 
@@ -41,6 +42,8 @@ builder.Services.AddSingleton(serviceProvider =>
 builder.Services.AddSingleton<IEventPublisher>(serviceProvider => new ServiceBusEventPublisher(
     serviceProvider.GetRequiredService<ServiceBusClient>(),
     serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value.EventsQueueName));
+
+builder.Services.AddSingleton<ReceiveStripeEvent>();
 
 builder.Services.AddHealthChecks();
 builder.Services.AddOpenApi();

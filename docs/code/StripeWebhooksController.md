@@ -32,31 +32,28 @@ Reading the stream also enforces the size limit for chunked requests. Those have
 
 The request stream belongs to the server, not to the reader. Without `leaveOpen`, disposing the `StreamReader` would also dispose `Request.Body`.
 
-### Signature check and `400`
+### Calling `ReceiveStripeEvent` and mapping the result
 
-The `Stripe-Signature` header and the raw body go to `IWebhookSignatureVerifier` (see `docs/code/StripeWebhookSignatureVerifier.md`). If the check fails, the action logs a warning with the reason and returns `400` (architecture section 4). The reason stays in the log, never in the response, so a caller probing the endpoint learns nothing. The body is not logged: it is unauthenticated input and could be up to 256 KB.
+The action passes the raw body, the `Stripe-Signature` header and `HttpContext.RequestAborted` to the `ReceiveStripeEvent` use case (see `docs/code/ReceiveStripeEvent.md`). The use case checks the signature, reads the event ID, publishes and logs. The action only maps its result to a status code:
+
+| Result | Status | Why |
+| --- | --- | --- |
+| `Published` | `200` | The event is on the queue |
+| `InvalidSignature` | `400` | Architecture section 4 |
+| `InvalidEventId` | `400` | A broken request, not a failed infrastructure |
+| `PublishFailed` | `500` | Section 4, failure table: Stripe resends with backoff |
+
+All responses have no body, so a caller probing the endpoint learns nothing; the reason is only in the log.
+
+The `switch` names every value and ends with `throw new UnreachableException()`. The compiler requires a default arm for an enum, and throwing makes a new result value fail loudly instead of falling into a status code by accident.
+
+### Why the controller has no `try`/`catch` and no JSON parsing
+
+Until task 1.5 the action did all of this itself: it parsed the `id` with `JsonDocument`, called the publisher inside a `try`/`catch`, and told the two kinds of `OperationCanceledException` apart. Task 1.6 moved that into the use case, after the layering rule in `CLAUDE.md`: a controller translates HTTP and nothing else. The controller no longer references `Payments.Infrastructure`, and the rules of ingestion are tested without HTTP.
+
+If Stripe closes the connection while the body is still being read, `ReadToEndAsync` throws `OperationCanceledException` out of the action. The rule keeps `try`/`catch` out of the controller, so this belongs to a pipeline-level handler; it is in `docs/pending.md` for task 3.4.
 
 The action was renamed from `Receive` to `ReceiveAsync` in task 1.2, after the naming rule in `CLAUDE.md`. The route comes from `[Route]`, so the `Async` suffix doesn't change the URL.
-
-### Reading the event ID and `400`
-
-`IEventPublisher` takes the event ID ready-made (see `docs/code/ServiceBusEventPublisher.md`), so the action reads it after the signature check. `JsonDocument` parses the body and only `id` is read. Nothing else in the event is looked at here: parsing the event is the worker's job (task 2.2).
-
-The ID must be a non-empty string of at most 128 characters, the limits of the Service Bus `MessageId`. Its setter throws `ArgumentException` otherwise. The `evt_` prefix is not checked: with a valid signature, the body came from Stripe or from someone who holds the secret, and the prefix is Stripe's format, not a rule of this system.
-
-A body that is not JSON, or has no valid `id`, gets `400` with the reason in the log, like a bad signature. It is a broken request, not a failed infrastructure, so it is not `500`. This does not stop Stripe from resending: Stripe treats **any** non-2xx response as a failed delivery, `4xx` included. The choice between `400` and `500` is about meaning and logs, not retries. In practice a real Stripe event always has an `id`.
-
-`JsonDocument` builds the whole document only to read one property. A forward-only `Utf8JsonReader` that stops at the top-level `id` would allocate less, but it is longer and harder to read, and events are a few KB. Code review during task 1.4 raised it; it was dropped because readable code is worth more here than a gain nobody can measure.
-
-### Publishing and `500`
-
-The raw body, the same string the signature was checked over, is published with the event ID (architecture section 4, step 3). The action answers `200` only after `PublishAsync` returns, so a `200` means the event is on the queue.
-
-Any exception from the publisher is caught, logged as an error with the event ID, and turned into `500` with no body (section 4, failure table: Stripe resends with backoff). The catch is explicit instead of letting the exception reach the framework, for two reasons: the rule "publish failed, answer `500`" is visible in the action, and in `Development` the developer exception page would otherwise send the stack trace to the caller.
-
-The publish uses `HttpContext.RequestAborted`. If Stripe gives up and closes the connection, the publish is cancelled. If the message was already sent when that happens, Stripe resends anyway and the worker's inbox discards the duplicate (section 6), so cancelling is safe.
-
-That cancellation raises `OperationCanceledException`, which the general catch would log as an error, as if the queue were down. A separate catch, filtered on `RequestAborted.IsCancellationRequested`, logs it as a warning instead, so error logs (and the publish-failure metrics of section 9) only count real queue failures. It still returns `500`, which nobody receives. An `OperationCanceledException` without the request being aborted, such as an SDK timeout, is a real failure and falls through to the general catch. Found in code review during task 1.4.
 
 ### How long a failed publish can take
 
@@ -74,6 +71,10 @@ With the defaults, a queue that does not answer holds the request for minutes. W
 
 ### Tests
 
-`tests/Payments.Api.Tests` runs the real pipeline with `WebApplicationFactory` and replaces `IEventPublisher` with a fake: one that records the calls, and one that throws `ServiceBusException`. The signature is computed by `StripeSignatureHelper`, linked from `Payments.Infrastructure.Tests` so both projects sign the same way. The tests cover: valid signature (`200`, one publish with the same ID and body), failing publisher (`500`), invalid signature, a body without a valid `id` (missing, empty, blank, not a string, not an object, not JSON), and an ID over 128 characters (`400`, nothing published). A last test blocks the publish, cancels the request from the client, and checks that the controller logs a warning, not an error. `TestServer` turns the client's cancellation into `RequestAborted`, so this is the same path as Stripe closing the connection.
+`tests/Payments.Api.Tests` runs the real pipeline with `WebApplicationFactory`, with the real `ReceiveStripeEvent`, and replaces `IEventPublisher` with a fake: one that records the calls (linked from `Payments.Application.Tests`), and one that throws `ServiceBusException`. The signature is computed by `StripeSignatureHelper`, linked from `Payments.Infrastructure.Tests` so both projects sign the same way. The tests cover: valid signature (`200`, one publish with the same ID and body), failing publisher (`500`), invalid signature, a body without a valid `id` (missing, empty, blank, not a string, not an object, not JSON), and an ID over 128 characters (`400`, nothing published). A last test blocks the publish, cancels the request from the client, and checks that a warning is logged, not an error. `TestServer` turns the client's cancellation into `RequestAborted`, so this is the same path as Stripe closing the connection. Since task 1.6 that warning comes from the `ReceiveStripeEvent` log category; the test's assertions did not change.
+
+The same rules are also tested without HTTP in `tests/Payments.Application.Tests`. The API tests stay because they prove the status codes and the raw-body path through the real pipeline.
+
+`ControllerDependencyTests` checks by reflection that no controller takes or holds a type from the `Payments.Infrastructure` assembly, so the layering rule cannot be broken silently. It is the controller counterpart of `DomainDependencyTests`.
 
 The trip to a real queue is not repeated here: the integration test of `ServiceBusEventPublisher` covers it, and task 1.5 runs the whole path with `stripe listen`.

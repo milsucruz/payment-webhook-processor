@@ -5,8 +5,9 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Payments.Api.Controllers;
 using Payments.Application.Messaging;
+using Payments.Application.Tests.Webhooks;
+using Payments.Application.Webhooks;
 using Payments.Infrastructure.Tests.Webhooks;
 
 namespace Payments.Api.Tests.Webhooks;
@@ -97,7 +98,7 @@ public class StripeWebhooksControllerTests : IClassFixture<WebApplicationFactory
     public async Task Request_aborted_during_publish_is_logged_as_a_warning_not_as_a_publish_failure()
     {
         BlockingEventPublisher publisher = new();
-        CollectingLoggerProvider logs = new(typeof(StripeWebhooksController).FullName!);
+        CollectingLoggerProvider logs = new(typeof(ReceiveStripeEvent).FullName!);
         HttpClient client = this.CreateClient(publisher, logs);
         using CancellationTokenSource abort = new();
 

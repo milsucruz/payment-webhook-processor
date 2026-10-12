@@ -6,7 +6,9 @@ Checks the `Stripe-Signature` header of a webhook against the raw body. This doc
 
 ## Where it lives
 
-Architecture section 11 puts Stripe signature validation in Infrastructure. The interface `IWebhookSignatureVerifier` sits next to it, not in Application: Application holds the ports of the use case, which the worker also runs, and the signature is only checked at the API edge. The interface keeps the controller free of Stripe.net types.
+Architecture section 11 puts Stripe signature validation in Infrastructure. The port `IWebhookSignatureVerifier` and `SignatureVerificationResult` are in `Payments.Application/Webhooks`, because the caller is the `ReceiveStripeEvent` use case (see `docs/code/ReceiveStripeEvent.md`). Application never references Stripe.net.
+
+Tasks 1.2 to 1.5 kept the interface next to the implementation, in Infrastructure, because only the controller called it. That made the controller depend on an Infrastructure type. Task 1.6 moved the check into a use case and the port into Application, so the dependency points inward like `IEventPublisher`. The parameter was renamed from `signatureHeader` to `signature` at the same time: a header is an HTTP term, and the port belongs to a layer that knows nothing about HTTP.
 
 ## `ValidateSignature`, not `ConstructEvent`
 

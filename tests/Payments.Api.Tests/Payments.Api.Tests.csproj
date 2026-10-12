@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <Compile Include="..\Payments.Infrastructure.Tests\Webhooks\StripeSignatureHelper.cs" Link="Webhooks\StripeSignatureHelper.cs" />
+    <Compile Include="..\Payments.Application.Tests\Webhooks\RecordingEventPublisher.cs" Link="Webhooks\RecordingEventPublisher.cs" />
   </ItemGroup>
 
 </Project>

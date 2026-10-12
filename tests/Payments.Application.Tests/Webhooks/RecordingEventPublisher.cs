@@ -1,6 +1,6 @@
 using Payments.Application.Messaging;
 
-namespace Payments.Api.Tests.Webhooks;
+namespace Payments.Application.Tests.Webhooks;
 
 public sealed class RecordingEventPublisher : IEventPublisher
 {
