@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Payments.Application.Webhooks;
 using Stripe;
 
 namespace Payments.Infrastructure.Webhooks;
@@ -16,9 +17,9 @@ public class StripeWebhookSignatureVerifier : IWebhookSignatureVerifier
         this.timeProvider = timeProvider;
     }
 
-    public SignatureVerificationResult Verify(string payload, string? signatureHeader)
+    public SignatureVerificationResult Verify(string payload, string? signature)
     {
-        if (string.IsNullOrEmpty(signatureHeader))
+        if (string.IsNullOrEmpty(signature))
         {
             return SignatureVerificationResult.Invalid("Missing Stripe-Signature header.");
         }
@@ -27,7 +28,7 @@ public class StripeWebhookSignatureVerifier : IWebhookSignatureVerifier
         {
             EventUtility.ValidateSignature(
                 payload,
-                signatureHeader,
+                signature,
                 this.secret,
                 ToleranceSeconds,
                 this.timeProvider.GetUtcNow().ToUnixTimeSeconds());

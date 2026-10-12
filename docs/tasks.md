@@ -2,18 +2,18 @@
 
 System design in [architecture.md](architecture.md). The "Done" column marks finished tasks (✅ done, ⬜ pending); a task gets ✅ only after its done criterion is verified, in the same commit as its session log row. The session log at the end of this file has the details.
 
-The eight roadmap milestones break down into 47 tasks of 1 to 3 hours each, totaling 49 to 78.5 hours without the optional milestone. Each task fits in one session and has a done criterion that is verified by running something.
+The eight roadmap milestones break down into 48 tasks of 1 to 3 hours each, totaling 50 to 80 hours without the optional milestone. Each task fits in one session and has a done criterion that is verified by running something.
 
 | Milestone | Tasks | Hours |
 | --- | --- | --- |
 | M0. Skeleton | 5 | 4.5 to 5.5 |
-| M1. Ingestion | 5 | 4.5 to 7 |
+| M1. Ingestion | 6 | 5.5 to 8.5 |
 | M2. Processing | 8 | 10 to 16 |
 | M3. Failures | 5 | 6 to 9 |
 | M4. Cloud | 9 | 10 to 17 |
 | M5. Dashboard and telemetry | 8 | 9.5 to 17 |
 | M6. Documentation | 4 | 4.5 to 7 |
-| Total up to the done criterion | 44 | 49 to 78.5 |
+| Total up to the done criterion | 45 | 50 to 80 |
 | M7. Horizontal scaling (optional) | 3 | 2.5 to 4.5 |
 
 The total came out above the initial estimate of 40 to 60 hours, which was made before the task breakdown. The breakdown is the better reference.
@@ -37,7 +37,7 @@ The total came out above the initial estimate of 40 to 60 hours, which was made 
 
 Task 0.2 is the most uncertain one in the milestone. Setting up the emulator for the first time tends to get stuck on details, so don't leave it for the end of a session.
 
-## M1. Ingestion (4.5 to 7 h)
+## M1. Ingestion (5.5 to 8.5 h)
 
 | Done | # | Task | Hours | Done when |
 | :---: | --- | --- | --- | --- |
@@ -46,6 +46,7 @@ Task 0.2 is the most uncertain one in the milestone. Setting up the emulator for
 | ✅ | 1.3 | Create the `IEventPublisher` port in Application and the Service Bus implementation: `MessageId` equal to the event ID, body equal to the original JSON | 1 to 2 | An integration test publishes and reads the message on the emulator with the same `MessageId` |
 | ✅ | 1.4 | Wire the two together: publish before responding `200`, and `500` if publishing fails | 1 | With `WebApplicationFactory`: a valid signature returns `200` and publishes a message; a failing publisher returns `500` |
 | ✅ | 1.5 | Run end to end with `stripe listen` and `stripe trigger payment_intent.succeeded`, and save the real JSONs in `tests/fixtures` | 0.5 to 1 | The message shows up on the local queue and the fixture files are in the repository |
+| ✅ | 1.6 | Move ingestion into the `ReceiveStripeEvent` use case in Application, with the signature verifier port next to it, so the controller only translates HTTP | 1 to 1.5 | The `Payments.Api.Tests` tests pass with no assertion changed, the new application tests cover the four results, and the controller does not reference `Payments.Infrastructure` |
 
 ## M2. Processing (10 to 16 h)
 
@@ -142,3 +143,4 @@ At the end of each session, add a row. It's what the next session reads to know 
 | 2026-10-12 | 1.3 | Done | 0.6 | IEventPublisher in Application/Messaging takes the event ID and the raw JSON string; the publisher never parses. Sealed ServiceBusEventPublisher in Infrastructure: MessageId = evt_ ID, body = original JSON, ContentType application/json, one reused sender. New tests/Payments.IntegrationTests with Testcontainers.ServiceBus (same emulator tag and config.json as compose), excluded from CI by project-name filter until 3.5; CLAUDE.md commands split unit/integration. Code review items for 1.4 (ID validation → 400, SDK retry cap, singleton registration) and 3.5 (shared container fixture) in pending.md; 256 KB item moved to 1.4 |
 | 2026-10-12 | 1.4 | Done | 0.7 | Controller reads only `id` via JsonDocument after the signature (non-empty string ≤128, MessageId limits; no evt_ prefix check) → 400 otherwise; publishes the raw body with RequestAborted and answers 200 only after publish; publisher exception → error log with event ID and 500, client abort → warning only. Stripe resends any non-2xx, so 400 vs 500 is about meaning, not retries. ServiceBusOptions validated on start; ServiceBusClient and publisher registered as singletons, retries capped (2 retries, 2 s TryTimeout, ~8 s worst case). 256 KB kept, section 8 wording fixed. New tests/Payments.Api.Tests (11 tests, WebApplicationFactory with fake publishers, HMAC helper linked). Code review: abort handling and blank-id test fixed; compose readiness (1.5), managed identity options (4.6) and cold-start TryTimeout (4.7) moved to pending.md; Utf8JsonReader dropped |
 | 2026-10-12 | 1.5 | Done | 0.8 | Stripe CLI 1.53.1 (winget). `listen` now requires an event list: uses `--events` with the 7 subscribed types (section 2), so only `payment_intent.created` and `.succeeded` arrive. Default `trigger` fixture fails on API version `2026-09-30.endive` (`payment_method_types` rejected): documented `--remove`/`--add automatic_payment_methods` variant. Fixtures taken from the queued message bodies (byte-exact raw body except the masked `client_secret` value, so not usable for signature checks) via a throwaway `dotnet run peek.cs`; only the `client_secret` value masked as `redacted`; `.gitattributes` keeps fixtures `-text`. Emulator readiness: image has no shell, `localhost:5300/health` turns 200 the same second publishing works, wait documented in CLAUDE.md; pending item closed |
+| 2026-10-12 | 1.6 | Done | 0.5 | Ingestion moved into ReceiveStripeEvent (Application/Webhooks): signature, then id parse, then publish, returning a result enum (Published, InvalidSignature, InvalidEventId, PublishFailed); the use case logs, a caller cancellation is a warning, any other publish failure an error with the event ID. Controller only reads the raw body and maps the result to 200/400/500, with no try/catch and no Infrastructure reference, enforced by ControllerDependencyTests. IWebhookSignatureVerifier moved to Application, parameter renamed to signature. New tests/Payments.Application.Tests (13 tests, log messages checked for event ID and reason); RecordingEventPublisher shared by link; Api assertions unchanged. Layering rule in CLAUDE.md and architecture section 11. Body-read abort moved to pending.md (3.4). M1 now 6 tasks, 5.5 to 8.5 h |

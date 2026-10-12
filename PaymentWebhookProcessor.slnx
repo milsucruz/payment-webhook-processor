@@ -8,6 +8,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Payments.Api.Tests/Payments.Api.Tests.csproj" />
+    <Project Path="tests/Payments.Application.Tests/Payments.Application.Tests.csproj" />
     <Project Path="tests/Payments.Domain.Tests/Payments.Domain.Tests.csproj" />
     <Project Path="tests/Payments.Infrastructure.Tests/Payments.Infrastructure.Tests.csproj" />
     <Project Path="tests/Payments.IntegrationTests/Payments.IntegrationTests.csproj" />

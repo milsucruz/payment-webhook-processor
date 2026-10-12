@@ -1,4 +1,4 @@
-namespace Payments.Infrastructure.Webhooks;
+namespace Payments.Application.Webhooks;
 
 public record SignatureVerificationResult(bool IsValid, string? FailureReason)
 {
