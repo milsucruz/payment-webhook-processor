@@ -410,7 +410,7 @@ All infrastructure is created by Bicep and fits within the free allowances, exce
 | Service Bus | Basic | Billed per million operations, no fixed fee ([pricing](https://azure.microsoft.com/en-us/pricing/details/service-bus/)) |
 | Azure SQL Database | Free offer, serverless | 100,000 vCore-seconds and 32 GB per month, for the life of the subscription ([documentation](https://learn.microsoft.com/en-us/azure/azure-sql/database/free-offer)) |
 | Application Insights and Log Analytics | Pay as you go | First 5 GB of ingestion per month free |
-| Key Vault | Standard | Billed per operation; cents at this volume |
+| Key Vault | Standard | Billed per 10,000 operations; cents at this volume |
 | GitHub Container Registry | Public repository | Free |
 | Azure SignalR Service (optional milestone) | Free | 20 concurrent connections and 20,000 messages per day ([pricing](https://azure.microsoft.com/en-us/pricing/details/signalr-service/)) |
 
@@ -449,7 +449,9 @@ New Azure accounts get US$ 200 of credit for 30 days, which covers any overrun d
 | Workflow | Trigger | Steps |
 | --- | --- | --- |
 | `ci.yml` | Pull request | Build, unit tests, integration tests with Testcontainers and `bicep build`; no Azure sign-in |
-| `deploy.yml` | Push to `main` | Build the images and push to GHCR tagged with the commit; `what-if`; deploy the Bicep with the new tag on the migration job only, keeping the API and the worker on the running tag; run the migration job; update the API and the worker to the new tag |
+| `deploy.yml` | Push to `main` | Build the images and push to GHCR tagged with the commit; `what-if`; deploy the Bicep with the new tag on the migration job only, keeping the API and the worker on the running tag, read from the active revision with `az containerapp show`; run the migration job; update the API and the worker to the new tag |
+
+`what-if` runs after the merge, so it only records the diff in the deploy log; it doesn't block anything. The review before the merge is the pull request itself.
 
 The migration runs before the new code, so the new code never meets an old schema. The old code does meet the new schema while the migration job runs, so every migration must stay compatible with the previous revision: add columns and tables first, remove them in a later deploy.
 
@@ -495,7 +497,7 @@ The controller and the worker are adapters. They translate HTTP or a queue messa
 | Unit, domain | xUnit | Every combination of current state and event in the transition table |
 | Unit, application | xUnit with in-memory test doubles | `ReceiveStripeEvent` results and logs; duplicate, unknown payment, concurrency conflict and partial refund |
 | Property | xUnit with generated permutations | Any order and any repetition of a valid event sequence leads to the same final state |
-| Integration | Testcontainers with SQL Server and the Service Bus emulator | A duplicate delivery writes one row; a poison message reaches the dead-letter after 5 deliveries; a crash after commit doesn't duplicate |
+| Integration | Testcontainers with SQL Server and the Service Bus emulator | A duplicate delivery writes one row; a poison message reaches the dead-letter after 5 deliveries, while an impossible conflict ("paid" for a canceled payment) reaches it on the first delivery; a crash after commit doesn't duplicate |
 | API | `WebApplicationFactory` | An invalid signature returns `400`; a valid signature returns `200` and publishes a message |
 | Contract | JSON files of real Stripe events in `tests/fixtures` | The parser accepts the format Stripe actually sends |
 

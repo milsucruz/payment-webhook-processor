@@ -71,7 +71,7 @@ Tasks 2.1 and 2.7 are the ones that pay off most in interviews. It's worth writi
 | ⬜ | 3.2 | Immediate dead-letter for permanent errors and impossible conflicts, with reason and description | 1 | An unreadable event shows up in the dead-letter with the reason filled in |
 | ⬜ | 3.3 | Fault injection via the `demo_fault` metadata, behind the `FaultInjection:Enabled` setting | 1 | A `poison` payment reaches the dead-letter after 5 deliveries, and a `transient` one passes on the third |
 | ⬜ | 3.4 | API: `GET /api/dead-letters`, without removing the messages, and a reprocess `POST`, with `X-Admin-Key` | 1 to 2 | The reprocessed message goes back to the main queue and disappears from the dead-letter; without the key, the API returns `401` |
-| ⬜ | 3.5 | Integration tests with Testcontainers: duplicate delivery, poison message and crash after commit | 2 to 3 | The three scenarios pass in CI |
+| ⬜ | 3.5 | Integration tests with Testcontainers: duplicate delivery, poison message (after 5 deliveries) and impossible conflict (on the first delivery), and crash after commit | 2 to 3 | The four scenarios pass in CI |
 
 At the end of M3 the system is complete on the local machine. It's a good point to rehearse the answer to "what happens if the worker crashes in the middle of processing?".
 
