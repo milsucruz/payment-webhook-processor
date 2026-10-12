@@ -326,7 +326,7 @@ Container Apps references the Key Vault secrets through the managed identity. Ro
 ### Webhook endpoint
 
 - **Signature:** validated over the raw body, with HMAC-SHA256 and a 5-minute tolerance against replay.
-- **Body size:** limited to 256 KB, which is also the message cap of the Basic tier.
+- **Body size:** limited to 256 KB, the message cap of the Basic tier. That cap also counts the message headers, so a body right at the limit is accepted and then fails to publish, which answers `500`. Real events are a few KB, so the limit is kept rather than lowered to an arbitrary value.
 - **Rate limit:** the ASP.NET Core rate limiter protects the endpoint from floods of unsigned requests.
 - **IP allowlist:** Stripe publishes its source IPs. It stays as optional hardening, because it requires maintaining the list.
 

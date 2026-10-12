@@ -1,3 +1,7 @@
+using Azure.Messaging.ServiceBus;
+using Microsoft.Extensions.Options;
+using Payments.Application.Messaging;
+using Payments.Infrastructure.Messaging;
 using Payments.Infrastructure.Webhooks;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -10,6 +14,34 @@ builder.Services.AddOptions<StripeOptions>()
     .ValidateOnStart();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IWebhookSignatureVerifier, StripeWebhookSignatureVerifier>();
+
+builder.Services.AddOptions<ServiceBusOptions>()
+    .BindConfiguration(ServiceBusOptions.SectionName)
+    .Validate(options => !string.IsNullOrWhiteSpace(options.ConnectionString), "ServiceBus:ConnectionString is required.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.EventsQueueName), "ServiceBus:EventsQueueName is required.")
+    .ValidateOnStart();
+builder.Services.AddSingleton(serviceProvider =>
+{
+    ServiceBusOptions options = serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value;
+
+    ServiceBusClientOptions clientOptions = new()
+    {
+        RetryOptions = new ServiceBusRetryOptions
+        {
+            Mode = ServiceBusRetryMode.Exponential,
+            MaxRetries = 2,
+            Delay = TimeSpan.FromMilliseconds(500),
+            MaxDelay = TimeSpan.FromSeconds(2),
+            TryTimeout = TimeSpan.FromSeconds(2),
+        },
+    };
+
+    return new ServiceBusClient(options.ConnectionString, clientOptions);
+});
+builder.Services.AddSingleton<IEventPublisher>(serviceProvider => new ServiceBusEventPublisher(
+    serviceProvider.GetRequiredService<ServiceBusClient>(),
+    serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value.EventsQueueName));
+
 builder.Services.AddHealthChecks();
 builder.Services.AddOpenApi();
 

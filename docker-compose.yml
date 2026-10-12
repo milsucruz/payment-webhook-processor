@@ -44,8 +44,12 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       Stripe__WebhookSecret: ${STRIPE_WEBHOOK_SECRET:?Set STRIPE_WEBHOOK_SECRET in .env}
+      # The emulator's fixed, public development key, not a secret. The queue name comes from appsettings.Development.json.
+      ServiceBus__ConnectionString: "Endpoint=sb://servicebus:5672;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
     ports:
       - "8080:8080"
+    depends_on:
+      - servicebus
 
   worker:
     build:

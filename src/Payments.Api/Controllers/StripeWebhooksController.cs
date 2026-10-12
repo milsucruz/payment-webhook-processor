@@ -1,4 +1,6 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using Payments.Application.Messaging;
 using Payments.Infrastructure.Webhooks;
 
 namespace Payments.Api.Controllers;
@@ -8,21 +10,26 @@ namespace Payments.Api.Controllers;
 [Route("webhooks/stripe")]
 public class StripeWebhooksController : ControllerBase
 {
-    // Architecture section 8. Service Bus also counts headers in its 256 KB: see docs/pending.md.
+    // Architecture section 8. Service Bus also counts headers in its 256 KB: see the class doc.
     private const int MaxBodyBytes = 256 * 1024;
 
+    private const int MaxEventIdLength = 128;
+
     private readonly IWebhookSignatureVerifier signatureVerifier;
+    private readonly IEventPublisher eventPublisher;
     private readonly ILogger<StripeWebhooksController> logger;
 
     public StripeWebhooksController(
         IWebhookSignatureVerifier signatureVerifier,
+        IEventPublisher eventPublisher,
         ILogger<StripeWebhooksController> logger)
     {
         this.signatureVerifier = signatureVerifier;
+        this.eventPublisher = eventPublisher;
         this.logger = logger;
     }
 
-    /// <summary>Receives a Stripe webhook event and rejects it if the signature is not valid.</summary>
+    /// <summary>Receives a Stripe webhook event, checks its signature and publishes it to the event queue.</summary>
     // No parameters, not even a CancellationToken: any bound parameter lets MVC consume form bodies first.
     [HttpPost]
     [RequestSizeLimit(MaxBodyBytes)]
@@ -39,6 +46,49 @@ public class StripeWebhooksController : ControllerBase
             return BadRequest();
         }
 
+        string? eventId = ReadEventId(payload);
+        if (eventId is null)
+        {
+            this.logger.LogWarning("Rejected Stripe webhook: the body has no valid event id");
+            return BadRequest();
+        }
+
+        try
+        {
+            await this.eventPublisher.PublishAsync(eventId, payload, HttpContext.RequestAborted);
+        }
+        catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
+        {
+            this.logger.LogWarning("Stripe closed the connection before event {EventId} was published", eventId);
+            return StatusCode(StatusCodes.Status500InternalServerError);
+        }
+        catch (Exception exception)
+        {
+            this.logger.LogError(exception, "Failed to publish Stripe event {EventId}", eventId);
+            return StatusCode(StatusCodes.Status500InternalServerError);
+        }
+
         return Ok();
+    }
+
+    private static string? ReadEventId(string payload)
+    {
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(payload);
+            if (document.RootElement.ValueKind != JsonValueKind.Object
+                || !document.RootElement.TryGetProperty("id", out JsonElement idElement)
+                || idElement.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
+            string? eventId = idElement.GetString();
+            return string.IsNullOrWhiteSpace(eventId) || eventId.Length > MaxEventIdLength ? null : eventId;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 }
