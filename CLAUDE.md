@@ -79,21 +79,26 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 
 - xUnit. Testes de integração com Testcontainers (SQL Server e emulador do Service Bus).
 - Toda regra de domínio nasce com teste. A tabela de transições tem um caso por combinação de estado e evento.
-- Fixtures de eventos reais do Stripe ficam em `tests/fixtures` (criada na tarefa 1.5) e não são editadas à mão.
+- Fixtures de eventos reais do Stripe ficam em `tests/fixtures` e não são editadas à mão. A única alteração é trocar o valor depois de `_secret_` no `client_secret` por `redacted`, para não versionar nem o segredo de teste. O `.gitattributes` impede a conversão de fim de linha nelas.
 
 ## Comandos
 
 ```bash
 cp .env.example .env            # uma vez; preencha MSSQL_SA_PASSWORD e STRIPE_WEBHOOK_SECRET
+stripe listen --print-secret    # valor de STRIPE_WEBHOOK_SECRET; depois de mudar o .env, docker compose up -d api
 docker compose up -d            # SQL Server, emulador do Service Bus, API e worker
+curl http://localhost:5300/health   # emulador pronto quando responde 200; antes disso o webhook responde 500
 dotnet build
 dotnet test --filter "FullyQualifiedName!~Payments.IntegrationTests"   # testes de unidade, sem Docker
 dotnet test tests/Payments.IntegrationTests                             # integração; precisa do Docker rodando
-stripe listen --forward-to localhost:8080/webhooks/stripe
-stripe trigger payment_intent.succeeded
+stripe listen --events payment_intent.created,payment_intent.processing,payment_intent.requires_action,payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled,charge.refunded --forward-to localhost:8080/webhooks/stripe
+stripe trigger payment_intent.succeeded --remove payment_intent:payment_method_types --add "payment_intent:automatic_payment_methods[enabled]=true" --add "payment_intent:automatic_payment_methods[allow_redirects]=never"
 ```
 
-Atualize esta seção quando um comando mudar. Os cinco primeiros já funcionam. Os dois do Stripe dependem do endpoint `POST /webhooks/stripe` (tarefa 1.1) e só são usados de ponta a ponta na tarefa 1.5.
+Atualize esta seção quando um comando mudar. Todos funcionam.
+
+- O `stripe listen` exige a lista de eventos desde o CLI 1.53; a lista é a dos eventos assinados (seção 2 da arquitetura).
+- O `trigger` remove `payment_method_types` porque a versão de API da conta (`2026-09-30.endive`) rejeita esse parâmetro, que a fixture padrão do CLI envia.
 
 ## Custo
 
