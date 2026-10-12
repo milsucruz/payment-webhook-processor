@@ -7,6 +7,7 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 - `docs/architecture.md`: desenho completo do sistema. Leia só as seções que a tarefa pede.
 - `docs/tasks.md`: tarefas por marco, com horas, critério de pronto e a coluna "Done" (✅ feita, ⬜ pendente). O fim do arquivo tem o registro de sessões ("Session log"), que diz onde o projeto está.
 - `docs/pending.md`: pendências encontradas numa tarefa e fora do escopo dela, com a tarefa em que devem ser resolvidas.
+- `docs/code/`: um documento por classe com a explicação detalhada que não cabe nos comentários do código. Leia o da classe antes de alterá-la.
 - `docs/adr/`: decisões de arquitetura, em inglês. A pasta ainda não existe; os ADRs são escritos na tarefa 6.2. Até lá, a fonte das decisões é a seção 12 da arquitetura, que lista as dez.
 
 | Assunto | Seção de `docs/architecture.md` |
@@ -68,6 +69,8 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
   - Todo método de produção que retorna `Task` ou `ValueTask` termina em `Async` (ex.: `ReceiveAsync`), inclusive actions de controller. Métodos de teste não levam o sufixo: o nome deles descreve o comportamento. O MVC remove o `Async` do nome da action por padrão, então `nameof(ReceiveAsync)` em `CreatedAtAction` não encontra a rota; use a rota por nome ou desligue `SuppressAsyncSuffixInActionNames`.
   - Método async público recebe `CancellationToken cancellationToken` como último parâmetro. Exceção só com motivo escrito em comentário no código, como a action do webhook, que não pode ter parâmetros.
   - Campos privados em `camelCase`, sem `_` (use `this.campo = campo` no construtor quando o nome colidir com o parâmetro). Interfaces com prefixo `I`. Constantes em `PascalCase` (ex.: `MaxBodyBytes`).
+- Comentários no código são curtos: uma linha com o porquê, só onde o código não é óbvio. A explicação detalhada (alternativas, armadilhas do framework, como foi descoberto) vai para o documento da classe em `docs/code/<Classe>.md`, criado na primeira vez que a classe precisar. Vale para qualquer classe: controller, Application, Infrastructure, Worker.
+- Toda action de controller tem `/// <summary>` com uma frase sobre o que o endpoint faz. Sem `<param>`, `<returns>` ou detalhe de implementação.
 - Commits no formato `type: description` (`feat`, `fix`, `test`, `docs`, `chore`, `infra`), um por tarefa quando possível.
 - Nenhum segredo no código, na imagem ou no repositório. Local usa o emulador e `dotnet user-secrets`; na nuvem, identidade gerenciada e Key Vault.
 
