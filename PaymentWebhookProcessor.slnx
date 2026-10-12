@@ -9,5 +9,6 @@
   <Folder Name="/tests/">
     <Project Path="tests/Payments.Domain.Tests/Payments.Domain.Tests.csproj" />
     <Project Path="tests/Payments.Infrastructure.Tests/Payments.Infrastructure.Tests.csproj" />
+    <Project Path="tests/Payments.IntegrationTests/Payments.IntegrationTests.csproj" />
   </Folder>
 </Solution>
