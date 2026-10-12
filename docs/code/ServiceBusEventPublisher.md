@@ -20,17 +20,19 @@ Architecture section 4, step 3:
 
 The body is a `string` because that is what the controller reads and what the signature verifier takes. `ServiceBusMessage(string)` encodes it as UTF-8, which is the encoding Stripe sends, so the bytes on the queue match the request body.
 
-The publisher does not read the JSON. It takes the event ID as a parameter, so it stays a transport that knows nothing about Stripe's format. Reading `id` from the body is task 1.4's job (see `docs/pending.md`).
+The publisher does not read the JSON. It takes the event ID as a parameter, so it stays a transport that knows nothing about Stripe's format. The controller reads `id` from the body after the signature check (see `docs/code/StripeWebhooksController.md`).
 
 ## One sender, reused
 
-The constructor creates one `ServiceBusSender` and every call reuses it. A sender opens an AMQP link, which is expensive, and the SDK documents it as thread-safe, so one per publisher is the intended use. The class implements `IAsyncDisposable` to close that link. The `ServiceBusClient` is passed in and not owned: whoever creates it (DI, task 1.4) disposes it. The class is `sealed` because it owns that link: a subclass that skipped `DisposeAsync` would leak it. Because the sender is created once, task 1.4 must register the publisher as a singleton.
+The constructor creates one `ServiceBusSender` and every call reuses it. A sender opens an AMQP link, which is expensive, and the SDK documents it as thread-safe, so one per publisher is the intended use. The class implements `IAsyncDisposable` to close that link. The `ServiceBusClient` is passed in and not owned: whoever creates it (the DI container) disposes it. The class is `sealed` because it owns that link: a subclass that skipped `DisposeAsync` would leak it.
+
+The API's `Program.cs` registers both the `ServiceBusClient` and the publisher as singletons, the publisher through a factory because its constructor takes the queue name as a plain `string` (from `ServiceBusOptions.EventsQueueName`). Registered as scoped, every webhook would open and close an AMQP link. The container disposes both at shutdown.
 
 ## Errors
 
-Nothing is caught. A failed send raises `ServiceBusException` (for example `MessageSizeExceeded`, or a timeout), and task 1.4 turns any exception into `500` so Stripe resends (section 4, failure table).
+Nothing is caught. A failed send raises `ServiceBusException` (for example `MessageSizeExceeded`, or a timeout), and the controller turns any exception into `500` so Stripe resends (section 4, failure table).
 
-The SDK retries before raising: by default 3 retries with exponential backoff and a 60 s `TryTimeout` per attempt. Those options belong to the `ServiceBusClient`, created in task 1.4; tuning them so a failed publish answers before Stripe gives up is listed in `docs/pending.md`.
+The SDK retries before raising. Those options belong to the `ServiceBusClient`, so they are set where the API creates it; the values and why are in `docs/code/StripeWebhooksController.md`.
 
 ## Tests
 
