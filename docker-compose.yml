@@ -40,6 +40,9 @@ services:
     build:
       context: .
       dockerfile: src/Payments.Api/Dockerfile
+    # Development turns on the OpenAPI document and Swagger UI; the cloud runs as Production.
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
     ports:
       - "8080:8080"
 
