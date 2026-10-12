@@ -1,6 +1,16 @@
+using Payments.Infrastructure.Webhooks;
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
+
+// Fails at startup without a webhook secret, instead of rejecting every webhook later.
+builder.Services.AddOptions<StripeOptions>()
+    .BindConfiguration(StripeOptions.SectionName)
+    .Validate(options => !string.IsNullOrWhiteSpace(options.WebhookSecret), "Stripe:WebhookSecret is required.")
+    .ValidateOnStart();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<IWebhookSignatureVerifier, StripeWebhookSignatureVerifier>();
 builder.Services.AddHealthChecks();
 builder.Services.AddOpenApi();
 

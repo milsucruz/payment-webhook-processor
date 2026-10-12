@@ -4,4 +4,9 @@
     <ProjectReference Include="..\Payments.Application\Payments.Application.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.12" />
+    <PackageReference Include="Stripe.net" Version="53.0.0" />
+  </ItemGroup>
+
 </Project>
