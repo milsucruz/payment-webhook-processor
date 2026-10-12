@@ -27,8 +27,11 @@ csharp_style_var_elsewhere = true:suggestion
 dotnet_style_predefined_type_for_locals_parameters_members = true:warning
 csharp_prefer_braces = true:warning
 
-# Naming (CLAUDE.md): private fields are camelCase with no _ prefix; constants are PascalCase.
-# Rules with modifiers are more specific, so they win over the plain fields rule.
+# Naming (CLAUDE.md): private fields are camelCase with no _ prefix, constants are PascalCase,
+# interfaces start with I. Rules with modifiers are more specific, so they win over the plain fields rule.
+# IDE1006 needs its own severity to run in `dotnet build`; the per-rule severity only shows in the IDE.
+dotnet_diagnostic.IDE1006.severity = warning
+
 dotnet_naming_rule.constants_pascal_case.severity = warning
 dotnet_naming_rule.constants_pascal_case.symbols = constants
 dotnet_naming_rule.constants_pascal_case.style = pascal_case
@@ -37,17 +40,17 @@ dotnet_naming_symbols.constants.applicable_accessibilities = *
 dotnet_naming_symbols.constants.required_modifiers = const
 dotnet_naming_style.pascal_case.capitalization = pascal_case
 
-# static readonly is how C# declares a constant of a type that can't be const (e.g. DateTimeOffset).
-dotnet_naming_rule.static_readonly_pascal_case.severity = warning
-dotnet_naming_rule.static_readonly_pascal_case.symbols = static_readonly_fields
-dotnet_naming_rule.static_readonly_pascal_case.style = pascal_case
-dotnet_naming_symbols.static_readonly_fields.applicable_kinds = field
-dotnet_naming_symbols.static_readonly_fields.applicable_accessibilities = *
-dotnet_naming_symbols.static_readonly_fields.required_modifiers = static, readonly
-
 dotnet_naming_rule.private_fields_camel_case.severity = warning
 dotnet_naming_rule.private_fields_camel_case.symbols = private_fields
 dotnet_naming_rule.private_fields_camel_case.style = camel_case
 dotnet_naming_symbols.private_fields.applicable_kinds = field
 dotnet_naming_symbols.private_fields.applicable_accessibilities = private
 dotnet_naming_style.camel_case.capitalization = camel_case
+
+dotnet_naming_rule.interfaces_prefix_i.severity = warning
+dotnet_naming_rule.interfaces_prefix_i.symbols = interfaces
+dotnet_naming_rule.interfaces_prefix_i.style = prefix_i
+dotnet_naming_symbols.interfaces.applicable_kinds = interface
+dotnet_naming_symbols.interfaces.applicable_accessibilities = *
+dotnet_naming_style.prefix_i.capitalization = pascal_case
+dotnet_naming_style.prefix_i.required_prefix = I
