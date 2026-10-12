@@ -19,9 +19,9 @@ public class StripeWebhookSignatureVerifierTests
     [Fact]
     public void Valid_signature_is_accepted()
     {
-        var header = StripeSignatureHelper.Header(Payload, Secret, SecondsAgo(0));
+        string header = StripeSignatureHelper.Header(Payload, Secret, SecondsAgo(0));
 
-        var result = CreateVerifier().Verify(Payload, header);
+        SignatureVerificationResult result = CreateVerifier().Verify(Payload, header);
 
         Assert.True(result.IsValid);
         Assert.Null(result.FailureReason);
@@ -30,9 +30,9 @@ public class StripeWebhookSignatureVerifierTests
     [Fact]
     public void Signature_made_with_another_secret_is_rejected()
     {
-        var header = StripeSignatureHelper.Header(Payload, "whsec_other_secret", SecondsAgo(0));
+        string header = StripeSignatureHelper.Header(Payload, "whsec_other_secret", SecondsAgo(0));
 
-        var result = CreateVerifier().Verify(Payload, header);
+        SignatureVerificationResult result = CreateVerifier().Verify(Payload, header);
 
         Assert.False(result.IsValid);
         Assert.NotNull(result.FailureReason);
@@ -41,12 +41,12 @@ public class StripeWebhookSignatureVerifierTests
     [Fact]
     public void Body_with_one_byte_changed_is_rejected()
     {
-        var header = StripeSignatureHelper.Header(Payload, Secret, SecondsAgo(0));
-        var bytes = Encoding.UTF8.GetBytes(Payload);
+        string header = StripeSignatureHelper.Header(Payload, Secret, SecondsAgo(0));
+        byte[] bytes = Encoding.UTF8.GetBytes(Payload);
         bytes[bytes.Length / 2] ^= 0x01;
-        var tampered = Encoding.UTF8.GetString(bytes);
+        string tampered = Encoding.UTF8.GetString(bytes);
 
-        var result = CreateVerifier().Verify(tampered, header);
+        SignatureVerificationResult result = CreateVerifier().Verify(tampered, header);
 
         Assert.NotEqual(Payload, tampered);
         Assert.False(result.IsValid);
@@ -55,10 +55,10 @@ public class StripeWebhookSignatureVerifierTests
     [Fact]
     public void Timestamp_at_the_tolerance_limit_is_accepted()
     {
-        var header = StripeSignatureHelper.Header(
+        string header = StripeSignatureHelper.Header(
             Payload, Secret, SecondsAgo(StripeWebhookSignatureVerifier.ToleranceSeconds));
 
-        var result = CreateVerifier().Verify(Payload, header);
+        SignatureVerificationResult result = CreateVerifier().Verify(Payload, header);
 
         Assert.True(result.IsValid);
     }
@@ -66,10 +66,10 @@ public class StripeWebhookSignatureVerifierTests
     [Fact]
     public void Timestamp_older_than_the_tolerance_is_rejected()
     {
-        var header = StripeSignatureHelper.Header(
+        string header = StripeSignatureHelper.Header(
             Payload, Secret, SecondsAgo(StripeWebhookSignatureVerifier.ToleranceSeconds + 1));
 
-        var result = CreateVerifier().Verify(Payload, header);
+        SignatureVerificationResult result = CreateVerifier().Verify(Payload, header);
 
         Assert.False(result.IsValid);
     }
@@ -79,7 +79,7 @@ public class StripeWebhookSignatureVerifierTests
     [InlineData("")]
     public void Missing_header_is_rejected(string? header)
     {
-        var result = CreateVerifier().Verify(Payload, header);
+        SignatureVerificationResult result = CreateVerifier().Verify(Payload, header);
 
         Assert.False(result.IsValid);
         Assert.Equal("Missing Stripe-Signature header.", result.FailureReason);
@@ -91,7 +91,7 @@ public class StripeWebhookSignatureVerifierTests
     [InlineData("v1=abc")]
     public void Malformed_header_is_rejected(string header)
     {
-        var result = CreateVerifier().Verify(Payload, header);
+        SignatureVerificationResult result = CreateVerifier().Verify(Payload, header);
 
         Assert.False(result.IsValid);
     }
@@ -99,12 +99,12 @@ public class StripeWebhookSignatureVerifierTests
     [Fact]
     public void Header_with_two_signatures_is_accepted_when_one_matches()
     {
-        var timestamp = SecondsAgo(0);
-        var header = $"t={timestamp},"
+        long timestamp = SecondsAgo(0);
+        string header = $"t={timestamp},"
             + $"v1={StripeSignatureHelper.ComputeV1(Payload, "whsec_old_secret", timestamp)},"
             + $"v1={StripeSignatureHelper.ComputeV1(Payload, Secret, timestamp)}";
 
-        var result = CreateVerifier().Verify(Payload, header);
+        SignatureVerificationResult result = CreateVerifier().Verify(Payload, header);
 
         Assert.True(result.IsValid);
     }

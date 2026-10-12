@@ -15,7 +15,7 @@ public sealed class ServiceBusEventPublisher : IEventPublisher, IAsyncDisposable
 
     public async Task PublishAsync(string eventId, string json, CancellationToken cancellationToken)
     {
-        var message = new ServiceBusMessage(json)
+        ServiceBusMessage message = new(json)
         {
             MessageId = eventId,
             ContentType = MediaTypeNames.Application.Json,

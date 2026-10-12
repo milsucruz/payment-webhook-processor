@@ -1,6 +1,6 @@
 using Payments.Infrastructure.Webhooks;
 
-var builder = WebApplication.CreateBuilder(args);
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 
@@ -13,7 +13,7 @@ builder.Services.AddSingleton<IWebhookSignatureVerifier, StripeWebhookSignatureV
 builder.Services.AddHealthChecks();
 builder.Services.AddOpenApi();
 
-var app = builder.Build();
+WebApplication app = builder.Build();
 
 // Development only: the webhook endpoint is public in the cloud, so the API description is not exposed there.
 if (app.Environment.IsDevelopment())

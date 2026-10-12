@@ -29,10 +29,10 @@ public class StripeWebhooksController : ControllerBase
     public async Task<IActionResult> ReceiveAsync()
     {
         // Raw body, before any deserialization: the signature is checked over it as received.
-        using var reader = new StreamReader(Request.Body, leaveOpen: true);
-        var payload = await reader.ReadToEndAsync(HttpContext.RequestAborted);
+        using StreamReader reader = new(Request.Body, leaveOpen: true);
+        string payload = await reader.ReadToEndAsync(HttpContext.RequestAborted);
 
-        var verification = this.signatureVerifier.Verify(payload, Request.Headers["Stripe-Signature"]);
+        SignatureVerificationResult verification = this.signatureVerifier.Verify(payload, Request.Headers["Stripe-Signature"]);
         if (!verification.IsValid)
         {
             this.logger.LogWarning("Rejected Stripe webhook: {Reason}", verification.FailureReason);

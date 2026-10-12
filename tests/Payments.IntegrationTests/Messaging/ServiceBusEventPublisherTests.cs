@@ -24,14 +24,14 @@ public class ServiceBusEventPublisherTests : IAsyncLifetime
         const string EventId = "evt_test_1";
         const string Json = """{"id":"evt_test_1","type":"payment_intent.succeeded","data":{"object":{"id":"pi_test_1","amount":2000}}}""";
 
-        await using var client = new ServiceBusClient(this.container.GetConnectionString());
-        await using (var publisher = new ServiceBusEventPublisher(client, QueueName))
+        await using ServiceBusClient client = new(this.container.GetConnectionString());
+        await using (ServiceBusEventPublisher publisher = new(client, QueueName))
         {
             await publisher.PublishAsync(EventId, Json, CancellationToken.None);
         }
 
-        await using var receiver = client.CreateReceiver(QueueName);
-        var message = await receiver.ReceiveMessageAsync(TimeSpan.FromSeconds(10));
+        await using ServiceBusReceiver receiver = client.CreateReceiver(QueueName);
+        ServiceBusReceivedMessage message = await receiver.ReceiveMessageAsync(TimeSpan.FromSeconds(10));
 
         Assert.NotNull(message);
         Assert.Equal(EventId, message.MessageId);
