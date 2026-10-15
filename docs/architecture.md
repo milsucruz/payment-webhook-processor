@@ -31,6 +31,11 @@ The problem is real: Stripe resends events when it doesn't get a timely response
 | Payment | A Stripe PaymentIntent, identified by `pi_...` |
 | Inbox | Table that records every received event and guarantees idempotency |
 | Dead-letter (DLQ) | Service Bus subqueue for messages that exhausted their attempts |
+| Requested state | The state an event leads the payment to, per the table in section 6 |
+| Level | Rank of a state; an event is applied only if it raises the level of the payment, with the exceptions listed in section 6 |
+| Final state | Canceled or refunded: accepts no transition |
+| Outcome | What processing an event did to the payment: applied, ignored as out of order, redundant (the payment is already in the requested state) or conflict |
+| Impossible conflict | An event that contradicts a fact already recorded, such as "paid" for a canceled payment; it goes to the dead-letter |
 
 ## 2. Requirements
 
@@ -231,7 +236,7 @@ Additional rules:
 - **Event for an unknown payment:** the worker creates the payment already in the event's state. A "paid" that arrives before "created" works.
 - **Event that would regress the state:** it is recorded in the history as ignored as out of order and counted in a metric. Between states of the same level, only the switch between requires action and processing is allowed.
 - **Refunds:** the refunded amount never decreases. A second partial refund updates the amount and keeps the level.
-- **Final states:** canceled and refunded accept no transition, whatever the level of the event. Apart from the impossible conflicts below, an event of a lower level is ignored as out of order, and the same event again is redundant. This rule takes precedence over the levels: without it, a `charge.refunded` (level 4) would be applied to a canceled payment (level 3).
+- **Final states:** canceled and refunded accept no transition, whatever the level of the event. Apart from the impossible conflicts below, an event of a lower level is ignored as out of order, and the same event again is redundant. No separate rule is needed for this: refunded is the highest level, and the only events that would not lower the level of a canceled payment (paid and the refunds) are impossible conflicts, so a `charge.refunded` (level 4) is never applied to a canceled payment (level 3).
 - **Impossible conflict:** "paid" or a refund for a canceled payment, or "canceled" for a payment that was paid (paid, partially refunded or refunded), goes to the dead-letter with its own reason, because it signals a broken assumption.
 
 ### Concurrency between replicas
