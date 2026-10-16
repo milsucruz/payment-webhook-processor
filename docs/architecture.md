@@ -32,6 +32,7 @@ The problem is real: Stripe resends events when it doesn't get a timely response
 | Inbox | Table that records every received event and guarantees idempotency |
 | Dead-letter (DLQ) | Service Bus subqueue for messages that exhausted their attempts |
 | Requested state | The state an event leads the payment to, per the table in section 6 |
+| Payment event | The parts of an event that matter to a payment: the payment, its requested state and its amounts |
 | Level | Rank of a state; an event is applied only if it raises the level of the payment, with the exceptions listed in section 6 |
 | Final state | Canceled or refunded: accepts no transition |
 | Outcome | What processing an event did to the payment: applied, ignored as out of order, redundant (the payment is already in the requested state) or conflict |

@@ -19,4 +19,8 @@
     <ProjectReference Include="..\..\src\Payments.Application\Payments.Application.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\fixtures\*.json" LinkBase="fixtures" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

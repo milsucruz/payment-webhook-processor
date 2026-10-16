@@ -1,0 +1,81 @@
+{
+  "id": "evt_3URHMoKVj7nYvfcn0mLLDXpb",
+  "object": "event",
+  "api_version": "2026-09-30.endive",
+  "created": 1792181079,
+  "data": {
+    "object": {
+      "id": "pi_3URHMoKVj7nYvfcn0HmzdGcs",
+      "object": "payment_intent",
+      "allowed_payment_method_types": null,
+      "amount": 2000,
+      "amount_capturable": 0,
+      "amount_details": {
+        "tip": {}
+      },
+      "amount_received": 0,
+      "application": null,
+      "application_fee_amount": null,
+      "automatic_payment_methods": {
+        "allow_redirects": "always",
+        "enabled": true
+      },
+      "canceled_at": 1792181079,
+      "cancellation_reason": "requested_by_customer",
+      "capture_method": "automatic_async",
+      "client_secret": "pi_3URHMoKVj7nYvfcn0HmzdGcs_secret_redacted",
+      "confirmation_method": "automatic",
+      "created": 1792181078,
+      "currency": "usd",
+      "customer": null,
+      "customer_account": null,
+      "description": "(created by Stripe CLI)",
+      "excluded_payment_method_types": null,
+      "last_payment_error": null,
+      "latest_charge": null,
+      "livemode": false,
+      "managed_payments": {
+        "enabled": false
+      },
+      "metadata": {},
+      "next_action": null,
+      "on_behalf_of": null,
+      "payment_method": null,
+      "payment_method_configuration_details": {
+        "id": "pmc_1UPlPBKVj7nYvfcnFaOEWddr",
+        "parent": null
+      },
+      "payment_method_options": {
+        "card": {
+          "installments": null,
+          "mandate_options": null,
+          "network": null,
+          "request_three_d_secure": "automatic"
+        }
+      },
+      "payment_method_types": [
+        "card"
+      ],
+      "payment_record": null,
+      "processing": null,
+      "receipt_email": null,
+      "review": null,
+      "setup_future_usage": null,
+      "shared_payment_granted_token": null,
+      "shipping": null,
+      "source": null,
+      "statement_descriptor": null,
+      "statement_descriptor_suffix": null,
+      "status": "canceled",
+      "transfer_data": null,
+      "transfer_group": null
+    }
+  },
+  "livemode": false,
+  "pending_webhooks": 2,
+  "request": {
+    "id": "req_dWEwRczssFDQDS",
+    "idempotency_key": "d67a11e5-35e2-44e2-b193-16880423c313"
+  },
+  "type": "payment_intent.canceled"
+}
