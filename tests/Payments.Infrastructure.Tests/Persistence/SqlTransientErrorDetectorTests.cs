@@ -36,8 +36,15 @@ public class SqlTransientErrorDetectorTests
 
     [Theory]
     [InlineData(-2)]
+    [InlineData(40)]
+    [InlineData(53)]
+    [InlineData(121)]
     [InlineData(258)]
     [InlineData(1205)]
+    [InlineData(1222)]
+    [InlineData(10061)]
+    [InlineData(10065)]
+    [InlineData(11001)]
     [InlineData(40613)]
     [InlineData(40501)]
     public void Transient_error_numbers_are_recognized(int number)
