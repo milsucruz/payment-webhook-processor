@@ -194,7 +194,7 @@ Three tables in Azure SQL support the system: the inbox guarantees idempotency, 
 - **Money as integers:** amounts are stored in cents, as Stripe sends them.
 - **Inbox and state in the same transaction:** this is what makes processing atomic. If the tables lived in different databases, the guarantee would be lost.
 - **History of ignored events:** the dashboard timeline shows out-of-order delivery happening, which is the most convincing part of the demo.
-- **Retention:** a monthly job clears the `Payload` of events older than 30 days. Stripe doesn't resend events that old, and the 32 GB of the free offer stay comfortable.
+- **Retention:** inbox rows are kept with their `Payload`. The simulator's `replay` mode resends the stored payloads, and test-mode volume (thousands of events of about 5 KB) stays far below the 32 GB of the free offer, so a cleanup job would add a scheduled component without solving a real problem.
 - **Dashboard reads:** the list uses keyset pagination (`UpdatedAt`, `PaymentIntentId`), without `OFFSET`.
 
 ## 6. Messaging and reliability
@@ -548,6 +548,7 @@ This list feeds the section of the same name in the README:
 - **Private networking:** database, Service Bus and Key Vault behind private endpoints, with Container Apps in a VNet.
 - **Two regions:** a second region with database replication, and the webhook endpoint behind Front Door.
 - **Real login:** Entra ID on the dashboard, with read and operator roles.
+- **Inbox retention:** a scheduled job would clear the `Payload` of events older than 30 days, which Stripe no longer resends, so a real event volume doesn't grow the database without bound.
 
 ## 13. Build roadmap
 
