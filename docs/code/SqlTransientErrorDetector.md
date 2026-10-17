@@ -24,8 +24,10 @@ The walk is needed because EF Core wraps the error: a failure in `SaveChangesAsy
 | -2 | Command timeout (SqlClient's own number) |
 | 258 | Connection timeout. Checked in the task 3.1 session: a refused connection (`127.0.0.1,1`) and an address that doesn't answer both end in 258, because SqlClient retries a refused connection until `Connect Timeout` runs out |
 | `SocketException` inside the `SqlException` | The connection failed at the socket. Found when CI failed in task 3.1: on Linux, which is what the containers run, a refused connection fails at once with number 0 and a `SocketException` inside, instead of retrying until 258 as on Windows. A database container restarting refuses connections like that, so it has to count as transient. Number 0 alone isn't used, because SqlClient also uses it for errors that aren't about the network |
-| 20, 64, 233, 10053, 10054, 10060 | Connection broken or reset by the network or the server |
+| 20, 64, 121, 233, 10053, 10054, 10060 | Connection broken or reset by the network or the server |
+| 40, 53, 10061, 10065, 11001 | Server not found, refused or unreachable, or host name not resolved. Added after the review of tasks 3.1 and 3.2: on Windows, `dotnet run` of the worker outside compose reports these with a `Win32Exception` inside instead of 258 or a `SocketException`, and 11001 is what a DNS miss looks like while the `sqlserver` container restarts. 53 and 11001 can also mean a wrong server name, which no retry fixes, but the cost of retrying it is bounded: 4 attempts per delivery and the dead-letter after 5 deliveries |
 | 1205 | Deadlock victim. Rare with `READ_COMMITTED_SNAPSHOT` (see `docs/code/PaymentsDbContext.md`), and retrying the whole transaction is the documented fix |
+| 1222 | Lock request timeout. Added after the same review: another transaction held the lock longer than `LOCK_TIMEOUT`, and a later attempt finds it free |
 | 4060, 4221, 40143, 40197, 40501, 40540, 40613, 42108, 42109, 49918, 49919, 49920 | Azure SQL: database unavailable, busy, reconfiguring, failing over or throttling. 40613 is also what a paused free database returns while it resumes |
 | 10928, 10929 | Azure SQL resource limits reached |
 

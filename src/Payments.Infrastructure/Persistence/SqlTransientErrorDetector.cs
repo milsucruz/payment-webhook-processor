@@ -9,7 +9,7 @@ public sealed class SqlTransientErrorDetector : ITransientErrorDetector
 {
     private static readonly HashSet<int> transientErrorNumbers =
     [
-        -2, 20, 64, 233, 258, 1205, 4060, 4221, 10053, 10054, 10060, 10928, 10929,
+        -2, 20, 40, 53, 64, 121, 233, 258, 1205, 1222, 4060, 4221, 10053, 10054, 10060, 10061, 10065, 10928, 10929, 11001,
         40143, 40197, 40501, 40540, 40613, 42108, 42109, 49918, 49919, 49920,
     ];
 

@@ -15,7 +15,7 @@ public class ProcessStripeEventTests
     private readonly InMemoryPaymentStore store = new();
     private readonly CollectingLogger<ProcessStripeEvent> logger = new();
     private readonly TestTransientErrorDetector transientErrorDetector = new();
-    private readonly FixedTimeProvider timeProvider = new(processedAt);
+    private readonly DelayTrackingTimeProvider timeProvider = new(processedAt);
 
     [Fact]
     public async Task Event_for_an_unknown_payment_creates_it_in_the_requested_state()
@@ -209,7 +209,7 @@ public class ProcessStripeEventTests
         this.store.CommitExceptions.Enqueue(new TransientTestException());
         this.store.CommitExceptions.Enqueue(new TransientTestException());
 
-        ProcessStripeEventResult result = await this.Process(payload);
+        ProcessStripeEventResult result = await this.ProcessThroughDelays(payload, TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(1));
 
         Assert.Equal(new ProcessStripeEventResult(ProcessStripeEventOutcome.Applied), result);
         Assert.Equal(3, this.store.TransactionsStarted);
@@ -217,7 +217,6 @@ public class ProcessStripeEventTests
         Assert.Equal(PaymentStatus.Paid, this.store.Payments[paymentEvent.PaymentIntentId].Status);
         Assert.Single(this.store.InboxEvents);
         Assert.Single(this.store.History);
-        Assert.Equal([TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(1)], this.timeProvider.Delays);
         Assert.Equal(2, this.logger.Entries.Count(entry => entry.Level == LogLevel.Warning && entry.Message.Contains("Transient error", StringComparison.Ordinal)));
     }
 
@@ -231,7 +230,11 @@ public class ProcessStripeEventTests
             this.store.CommitExceptions.Enqueue(new TransientTestException());
         }
 
-        ProcessStripeEventResult result = await this.Process(payload);
+        ProcessStripeEventResult result = await this.ProcessThroughDelays(
+            payload,
+            TimeSpan.FromMilliseconds(200),
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(5));
 
         Assert.Equal(ProcessStripeEventOutcome.TransientFailure, result.Outcome);
         Assert.Contains(paymentEvent.EventId, result.Reason, StringComparison.Ordinal);
@@ -240,7 +243,22 @@ public class ProcessStripeEventTests
         Assert.Empty(this.store.Payments);
         Assert.Empty(this.store.InboxEvents);
         Assert.Empty(this.store.History);
-        Assert.Equal([TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5)], this.timeProvider.Delays);
+    }
+
+    [Fact]
+    public async Task Cancellation_during_a_transient_retry_delay_stops_without_another_attempt()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        this.store.CommitExceptions.Enqueue(new TransientTestException());
+        using CancellationTokenSource cancellation = new();
+
+        Task<ProcessStripeEventResult> processing = this.Process(payload, cancellation.Token);
+        Assert.Equal(TimeSpan.FromMilliseconds(200), await this.timeProvider.WaitForDelay());
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => processing);
+        Assert.Equal(1, this.store.TransactionsStarted);
+        Assert.Equal(0, this.store.Commits);
     }
 
     [Fact]
@@ -252,7 +270,7 @@ public class ProcessStripeEventTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => this.Process(payload));
 
         Assert.Equal(1, this.store.TransactionsStarted);
-        Assert.Empty(this.timeProvider.Delays);
+        Assert.False(this.timeProvider.HasUnobservedDelay);
     }
 
     [Fact]
@@ -262,12 +280,11 @@ public class ProcessStripeEventTests
         this.store.CommitExceptions.Enqueue(new TransientTestException());
         this.store.ConcurrencyConflictsToReport = ProcessStripeEvent.MaxConcurrencyAttempts - 1;
 
-        ProcessStripeEventResult result = await this.Process(payload);
+        ProcessStripeEventResult result = await this.ProcessThroughDelays(payload, TimeSpan.FromMilliseconds(200));
 
         Assert.Equal(new ProcessStripeEventResult(ProcessStripeEventOutcome.Applied), result);
         Assert.Equal(1 + ProcessStripeEvent.MaxConcurrencyAttempts, this.store.TransactionsStarted);
         Assert.Equal(1, this.store.Commits);
-        Assert.Equal([TimeSpan.FromMilliseconds(200)], this.timeProvider.Delays);
     }
 
     [Theory]
@@ -303,9 +320,23 @@ public class ProcessStripeEventTests
             earlierAt));
     }
 
-    private Task<ProcessStripeEventResult> Process(string payload)
+    private Task<ProcessStripeEventResult> Process(string payload, CancellationToken cancellationToken = default)
     {
         ProcessStripeEvent processStripeEvent = new(this.store, this.transientErrorDetector, this.timeProvider, this.logger);
-        return processStripeEvent.ExecuteAsync(payload, CancellationToken.None);
+        return processStripeEvent.ExecuteAsync(payload, cancellationToken);
+    }
+
+    private async Task<ProcessStripeEventResult> ProcessThroughDelays(string payload, params TimeSpan[] expectedDelays)
+    {
+        Task<ProcessStripeEventResult> processing = this.Process(payload);
+        foreach (TimeSpan expectedDelay in expectedDelays)
+        {
+            Assert.Equal(expectedDelay, await this.timeProvider.WaitForDelay());
+            this.timeProvider.Advance(expectedDelay);
+        }
+
+        ProcessStripeEventResult result = await processing;
+        Assert.False(this.timeProvider.HasUnobservedDelay);
+        return result;
     }
 }
