@@ -14,5 +14,9 @@
     <Project Path="tests/Payments.Infrastructure.Tests/Payments.Infrastructure.Tests.csproj" />
     <Project Path="tests/Payments.IntegrationTests/Payments.IntegrationTests.csproj" />
     <Project Path="tests/Payments.Worker.Tests/Payments.Worker.Tests.csproj" />
+    <Project Path="tests/Simulator.Tests/Simulator.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Simulator/Simulator.csproj" />
   </Folder>
 </Solution>

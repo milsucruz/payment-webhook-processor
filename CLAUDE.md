@@ -104,9 +104,15 @@ dotnet test tests/Payments.IntegrationTests                             # integr
 dotnet ef migrations add <Nome> -p src/Payments.Infrastructure -s src/Payments.Migrator -o Persistence/Migrations   # nova migration; depois, docker compose up -d --build migrator
 stripe listen --events payment_intent.created,payment_intent.processing,payment_intent.requires_action,payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled,charge.refunded --forward-to localhost:8080/webhooks/stripe
 stripe trigger payment_intent.succeeded --remove payment_intent:payment_method_types --add "payment_intent:automatic_payment_methods[enabled]=true" --add "payment_intent:automatic_payment_methods[allow_redirects]=never"
+dotnet user-secrets set ConnectionStrings:Payments "<a mesma do worker>" --project tools/Simulator   # replay; ou ConnectionStrings__Payments no ambiente
+dotnet user-secrets set Stripe:WebhookSecret <STRIPE_WEBHOOK_SECRET do .env> --project tools/Simulator   # replay; ou Stripe__WebhookSecret
+dotnet user-secrets set Stripe:SecretKey <sk_test_...> --project tools/Simulator   # pay e refund; só aceita chave de teste
+dotnet run --project tools/Simulator -- pay                          # um pagamento por cartão de teste: aprova, recusa, pede autenticação
+dotnet run --project tools/Simulator -- refund <pi_...> [centavos]   # sem valor, reembolso total
+dotnet run --project tools/Simulator -- replay [seed]                # reenvia cada evento do inbox duas vezes, embaralhado; precisa do compose de pé
 ```
 
-Atualize esta seção quando um comando mudar. Todos funcionam.
+Atualize esta seção quando um comando mudar. Todos funcionam, exceto `pay` e `refund` do simulador, que ainda não rodaram contra o Stripe (sem chave de teste na tarefa 2.8; ver `docs/pending.md`).
 
 - O `stripe listen` exige a lista de eventos desde o CLI 1.53; a lista é a dos eventos assinados (seção 2 da arquitetura).
 - O `trigger` remove `payment_method_types` porque a versão de API da conta (`2026-09-30.endive`) rejeita esse parâmetro, que a fixture padrão do CLI envia.
