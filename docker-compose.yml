@@ -67,6 +67,17 @@ services:
     build:
       context: .
       dockerfile: src/Payments.Worker/Dockerfile
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      # The emulator's fixed, public development key, not a secret. The queue name comes from appsettings.Development.json.
+      ServiceBus__ConnectionString: "Endpoint=sb://servicebus:5672;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
+      ConnectionStrings__Payments: "Server=sqlserver;Database=Payments;User Id=sa;Password=${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD in .env};TrustServerCertificate=True"
+    # Waits for the schema, so the worker never meets a database without the tables.
+    depends_on:
+      servicebus:
+        condition: service_started
+      migrator:
+        condition: service_completed_successfully
 
 volumes:
   sqlserver-data:

@@ -30,12 +30,12 @@ Task 2.6 turns those two into a retry. Telling the tables apart by name is not n
 
 The payment `UPDATE` rides along in the first `SaveChanges` because `Apply` decides and changes in one call: the outcome that goes into the inbox row comes from it. The alternative (decide with `PaymentTransitions.Decide`, insert the inbox alone, then `Apply`) would compute the decision twice. Inside one transaction the order of the writes doesn't change the result.
 
-When the inbox insert fails, EF rolls the batch back to a savepoint, and the `DbContext` keeps the failed entries as tracked. Nothing uses the context afterwards: the use case returns, the transaction rolls back, and the worker (task 2.5) creates one scope per message.
+When the inbox insert fails, EF rolls the batch back to a savepoint, and the `DbContext` keeps the failed entries as tracked. Nothing uses the context afterwards: the use case returns, the transaction rolls back, and `PaymentEventsWorker` creates one scope per message.
 
 ## Lifetime
 
-The store holds the open transaction in a field, so it lives in the same scope as its `DbContext`: one instance per message. It is not registered anywhere yet; the worker registers it in task 2.5.
+The store holds the open transaction in a field, so it lives in the same scope as its `DbContext`: one instance per message. The worker registers it as scoped in `Program.cs`.
 
 ## Not tested against SQL Server yet
 
-The unit tests use a test double (`InMemoryPaymentStore`). This class meets a real database first in task 2.5, when `stripe trigger` must change the local database, and the duplicate case gets an integration test with the rest of the integration suite (see `docs/pending.md`).
+The unit tests use a test double (`InMemoryPaymentStore`). Task 2.5 ran this class against the local SQL Server through `stripe trigger`, including a real duplicate (`stripe events resend`) and a real `PK_Payments` violation (see `docs/code/PaymentEventsWorker.md`). The automated integration test arrives with the rest of the integration suite (see `docs/pending.md`).
