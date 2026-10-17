@@ -22,7 +22,7 @@ The payload is the message body, the original JSON that the API published. The u
 
 Steps 2 to 5 are one attempt (`ProcessOnceAsync`). A concurrency conflict in step 4 or 5 rolls the attempt back and starts again at step 2; see "Concurrency conflicts" below. A transient error in any step from 2 to 5 does the same after a wait; see "Transient errors".
 
-The worker maps the result: `Applied`, `IgnoredOutOfOrder`, `Redundant` and `Duplicate` complete the message. `InvalidEvent` and `Conflict` are permanent errors that go to the dead-letter with `Reason` (task 3.2); until then the worker abandons them. `ConcurrencyConflict` and `TransientFailure` are abandoned for a later delivery.
+The worker maps the result: `Applied`, `IgnoredOutOfOrder`, `Redundant` and `Duplicate` complete the message. `InvalidEvent` and `Conflict` are permanent errors that go to the dead-letter on the first delivery, with `Reason` as the description (task 3.2, see `docs/code/PaymentEventsWorker.md`). `ConcurrencyConflict` and `TransientFailure` are abandoned for a later delivery.
 
 ## Concurrency conflicts
 
@@ -95,7 +95,7 @@ An unknown payment is created by the constructor already in the requested state,
 
 ## Result record, not a plain enum
 
-`CLAUDE.md` asks use cases to return an enum. Here the result is `ProcessStripeEventResult(Outcome, Reason)`, because the dead-letter needs a reason (section 6), and for an invalid event the useful reason is the parser's message ("The field 'payment_intent' is missing..."). A fixed text per enum value would hide which field was wrong. `Reason` is set only for `InvalidEvent` and `Conflict`. Decided in the task 2.4 session.
+`CLAUDE.md` asks use cases to return an enum. Here the result is `ProcessStripeEventResult(Outcome, Reason)`, because the dead-letter needs a reason (section 6), and for an invalid event the useful reason is the parser's message ("The field 'payment_intent' is missing..."). A fixed text per enum value would hide which field was wrong. `Reason` is set for `InvalidEvent` and `Conflict`, which the worker writes to `DeadLetterErrorDescription` (task 3.2), and for `ConcurrencyConflict` and `TransientFailure` after the last attempt, where it is only logged. Decided in the task 2.4 session. The fixed code per outcome (`InvalidEvent`, `ImpossibleConflict`) goes in `DeadLetterReason` and is chosen by the worker, not here.
 
 ## Duplicate versus redundant
 

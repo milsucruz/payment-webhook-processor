@@ -6,6 +6,9 @@ namespace Payments.Worker;
 // Details: docs/code/PaymentEventsWorker.md
 public sealed class PaymentEventsWorker : BackgroundService
 {
+    public const string InvalidEventReason = "InvalidEvent";
+    public const string ImpossibleConflictReason = "ImpossibleConflict";
+
     private readonly ServiceBusProcessor processor;
     private readonly IServiceScopeFactory scopeFactory;
     private readonly ILogger<PaymentEventsWorker> logger;
@@ -46,7 +49,11 @@ public sealed class PaymentEventsWorker : BackgroundService
                 await args.CompleteMessageAsync(args.Message, args.CancellationToken);
                 break;
             case ProcessStripeEventOutcome.InvalidEvent:
+                await args.DeadLetterMessageAsync(args.Message, InvalidEventReason, result.Reason, args.CancellationToken);
+                break;
             case ProcessStripeEventOutcome.Conflict:
+                await args.DeadLetterMessageAsync(args.Message, ImpossibleConflictReason, result.Reason, args.CancellationToken);
+                break;
             case ProcessStripeEventOutcome.ConcurrencyConflict:
             case ProcessStripeEventOutcome.TransientFailure:
                 await args.AbandonMessageAsync(args.Message, cancellationToken: args.CancellationToken);

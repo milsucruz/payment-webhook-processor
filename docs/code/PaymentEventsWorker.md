@@ -14,15 +14,34 @@ The adapter between the `payment-events` queue and `ProcessStripeEvent` (see `do
 | --- | --- | --- |
 | `Applied`, `IgnoredOutOfOrder`, `Redundant` | Complete | The transaction is committed, so the message can leave the queue (step 8 of section 4) |
 | `Duplicate` | Complete | The event was already processed; nothing was written (section 6) |
-| `InvalidEvent`, `Conflict` | Abandon | Provisional: see below |
-| `ConcurrencyConflict` | Abandon | The use case already retried from the read `ProcessStripeEvent.MaxConcurrencyAttempts` times (task 2.6). Losing that many races in a row is unlikely but not a broken assumption, so the message goes back for a later delivery. Unlike the row above, task 3.2 keeps this one as an abandon |
-| `TransientFailure` | Abandon | The use case already made 1 attempt plus 3 retries over about 6 s (task 3.1, `docs/code/ProcessStripeEvent.md`). The database is still unreachable, so the message goes back and Service Bus delivers it again, up to 5 times. Not a permanent error: task 3.2 keeps this one as an abandon too |
+| `InvalidEvent` | Dead-letter, reason `InvalidEvent` | Permanent error: the body is unreadable or the type is unsupported, so every delivery would fail the same way (section 6). See below |
+| `Conflict` | Dead-letter, reason `ImpossibleConflict` | Permanent error: the event contradicts a recorded fact, and no retry changes that (section 6). See below |
+| `ConcurrencyConflict` | Abandon | The use case already retried from the read `ProcessStripeEvent.MaxConcurrencyAttempts` times (task 2.6). Losing that many races in a row is unlikely but not a broken assumption, so the message goes back for a later delivery |
+| `TransientFailure` | Abandon | The use case already made 1 attempt plus 3 retries over about 6 s (task 3.1, `docs/code/ProcessStripeEvent.md`). The database is still unreachable, so the message goes back and Service Bus delivers it again, up to 5 times. Not a permanent error |
 
 `CompleteMessageAsync` only runs after `ExecuteAsync` returns, and `ExecuteAsync` only returns those outcomes after the commit. If the worker dies between the two, the message comes back and the inbox turns it into a `Duplicate`.
 
-## Permanent errors are abandoned until task 3.2
+## Permanent errors go straight to the dead-letter
 
-Section 6 sends permanent errors straight to the dead-letter, with reason and description. That is task 3.2. Until then the worker abandons them. The message comes back, fails the same way, and after the fifth delivery (`MaxDeliveryCount`) Service Bus moves it to the dead-letter by itself. Nothing is lost and nothing is completed by mistake. The cost is four useless deliveries and a dead-letter reason of `MaxDeliveryCountExceeded` instead of the parser message. Task 3.2 replaces the `AbandonMessageAsync` with `DeadLetterMessageAsync` using `result.Reason`.
+Section 6 sends permanent errors to the dead-letter on the first delivery, with reason and description (task 3.2). Service Bus gives a dead-lettered message two properties, and the worker fills them differently:
+
+| Property | Value | Why |
+| --- | --- | --- |
+| `DeadLetterReason` | A fixed code per outcome: `InvalidEvent` or `ImpossibleConflict` (constants on the class) | A short, stable value that the dead-letter screen (task 3.4) can show and filter. It follows what Service Bus itself writes when it dead-letters a message: a code such as `MaxDeliveryCountExceeded` or `TTLExpiredException` in the reason, and the detail in the description |
+| `DeadLetterErrorDescription` | `result.Reason`, the use case's text: the parser message ("The event body is not valid JSON.") or the conflict ("Event evt_... requests Paid for payment pi_..., which is Canceled.") | The operator needs to know which field was wrong or which fact was contradicted. Only the use case knows that, since the worker never reads the event |
+
+Why these choices:
+
+- **The code comes from the worker, the text from the use case.** Choosing the settlement, and what to write on it, is the adapter's job (layering rule in `CLAUDE.md`). The code depends only on the outcome, so the worker can pick it without reading the event. The text depends on the event, so the use case writes it and logs it (warning) before returning.
+- **`ImpossibleConflict`, not the enum name.** `Conflict.ToString()` would read like `ConcurrencyConflict`, which never goes to the dead-letter on its own. The glossary term (section 1) is "impossible conflict".
+- **Not a fixed text for every outcome.** It would hide which field of the body was wrong (see "Result record" in `docs/code/ProcessStripeEvent.md`).
+- **No extra log in the worker.** The use case already logged the reason as a warning; a second line would say the same thing.
+
+The SDK refuses a reason or description longer than 4096 characters with `ArgumentOutOfRangeException`. The worker doesn't truncate. The codes are short, and the description is built from fixed text plus Stripe's event ID, payment ID and type, which are short. If a description ever went over the limit, the exception would leave the handler, the message would be abandoned (section below) and, after 5 deliveries, Service Bus would dead-letter it with `MaxDeliveryCountExceeded`. Nothing is lost, only the reason gets worse.
+
+Dead-lettering keeps the message as it was: same `MessageId` (the `evt_` ID) and same body. That is what the reprocess endpoint of task 3.4 republishes.
+
+The other way to reach the dead-letter is `MaxDeliveryCount`: a message abandoned 5 times (transient failure that never ends, concurrency conflicts, or an exception) is moved by Service Bus with the reason `MaxDeliveryCountExceeded`. Until task 3.2 permanent errors took that path too, costing four useless deliveries and losing the parser message.
 
 ## No `try`/`catch`: exceptions go back to the queue
 
@@ -73,7 +92,11 @@ In compose the worker waits for `migrator` to finish successfully and for `servi
 
 `tests/Payments.Worker.Tests/WorkerDependencyTests.cs` checks that no type in the worker, apart from `Program`, takes or holds a `Payments.Infrastructure` type. It is the same check as `ControllerDependencyTests` in the API. Adding a `PaymentStore` constructor parameter to the worker makes it fail.
 
-There is no unit test of the settlement mapping: building fake `ProcessMessageEventArgs` costs more than the `switch` it would check. Integration tests with the emulator arrive in task 3.5.
+There is no unit test of the settlement mapping: building fake `ProcessMessageEventArgs` costs more than the `switch` it would check. It is checked against the real Service Bus emulator instead.
+
+`tests/Payments.IntegrationTests/Worker/PaymentEventsWorkerDeadLetterTests.cs` is task 3.2's done criterion. It starts the emulator in Testcontainers, sends a message whose body is `not json`, runs the real `PaymentEventsWorker` with a processor built like the one in `Program.cs` (peek-lock, no auto-complete), and receives from the dead-letter subqueue. It asserts the same `MessageId` and body, the reason `InvalidEvent`, the parser message as description, and `DeliveryCount` 1, which proves the message went on the first delivery and not after five. The services are registered as in `Program.cs`, but the database connection string points nowhere: an unreadable event fails in the parser, before the use case opens a transaction, so no SQL Server is needed. Putting the `InvalidEvent` case back on the abandon path fails the test with `MaxDeliveryCountExceeded` as the reason (mutation check in the task 3.2 session).
+
+The impossible conflict takes the same path with the other code. Its integration test ("paid" for a canceled payment, dead-lettered on the first delivery) belongs to task 3.5, together with the poison message, the duplicate delivery and the crash after commit.
 
 ## Verified in task 2.5
 
