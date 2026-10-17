@@ -467,7 +467,7 @@ Each deploy creates a new Container Apps revision tagged with the commit. Rollin
 
 ### Local environment
 
-One `docker compose up` starts SQL Server, the official Service Bus emulator, the API and the worker. The Stripe CLI forwards test webhooks to the machine with `stripe listen --events <types> --forward-to localhost:8080/webhooks/stripe`, where `<types>` is the comma-separated list of subscribed event types from section 2. CLI 1.53.1 refuses to start without it (`must specify events to forward using --events, --all-snapshot, or --all-thin`), and the list keeps the local endpoint equal to the cloud one. Locally, authentication uses the emulator's connection strings, and switching to managed identity is configuration only.
+One `docker compose up` starts SQL Server, the official Service Bus emulator, the migrator, which applies the EF Core migrations and exits, the API and the worker. The Stripe CLI forwards test webhooks to the machine with `stripe listen --events <types> --forward-to localhost:8080/webhooks/stripe`, where `<types>` is the comma-separated list of subscribed event types from section 2. CLI 1.53.1 refuses to start without it (`must specify events to forward using --events, --all-snapshot, or --all-thin`), and the list keeps the local endpoint equal to the cloud one. Locally, authentication uses the emulator's connection strings, and switching to managed identity is configuration only.
 
 The API runs as `Development` locally, which exposes the OpenAPI document at `/openapi/v1.json` and Swagger UI at `/swagger`. Neither is mapped outside `Development`, so the public endpoint in the cloud doesn't publish the API description.
 

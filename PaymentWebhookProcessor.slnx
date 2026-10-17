@@ -4,6 +4,7 @@
     <Project Path="src/Payments.Application/Payments.Application.csproj" />
     <Project Path="src/Payments.Domain/Payments.Domain.csproj" />
     <Project Path="src/Payments.Infrastructure/Payments.Infrastructure.csproj" />
+    <Project Path="src/Payments.Migrator/Payments.Migrator.csproj" />
     <Project Path="src/Payments.Worker/Payments.Worker.csproj" />
   </Folder>
   <Folder Name="/tests/">

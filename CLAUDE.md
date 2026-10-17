@@ -90,11 +90,12 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 ```bash
 cp .env.example .env            # uma vez; preencha MSSQL_SA_PASSWORD e STRIPE_WEBHOOK_SECRET
 stripe listen --print-secret    # valor de STRIPE_WEBHOOK_SECRET; depois de mudar o .env, docker compose up -d api
-docker compose up -d            # SQL Server, emulador do Service Bus, API e worker
+docker compose up -d            # SQL Server, emulador do Service Bus, migrator (aplica as migrations e sai), API e worker
 curl http://localhost:5300/health   # emulador pronto quando responde 200; antes disso o webhook responde 500
 dotnet build
 dotnet test --filter "FullyQualifiedName!~Payments.IntegrationTests"   # testes de unidade, sem Docker
 dotnet test tests/Payments.IntegrationTests                             # integração; precisa do Docker rodando
+dotnet ef migrations add <Nome> -p src/Payments.Infrastructure -s src/Payments.Migrator -o Persistence/Migrations   # nova migration; depois, docker compose up -d --build migrator
 stripe listen --events payment_intent.created,payment_intent.processing,payment_intent.requires_action,payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled,charge.refunded --forward-to localhost:8080/webhooks/stripe
 stripe trigger payment_intent.succeeded --remove payment_intent:payment_method_types --add "payment_intent:automatic_payment_methods[enabled]=true" --add "payment_intent:automatic_payment_methods[allow_redirects]=never"
 ```
