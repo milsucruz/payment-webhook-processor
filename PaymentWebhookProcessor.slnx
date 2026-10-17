@@ -13,5 +13,6 @@
     <Project Path="tests/Payments.Domain.Tests/Payments.Domain.Tests.csproj" />
     <Project Path="tests/Payments.Infrastructure.Tests/Payments.Infrastructure.Tests.csproj" />
     <Project Path="tests/Payments.IntegrationTests/Payments.IntegrationTests.csproj" />
+    <Project Path="tests/Payments.Worker.Tests/Payments.Worker.Tests.csproj" />
   </Folder>
 </Solution>

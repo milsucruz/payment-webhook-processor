@@ -60,7 +60,7 @@ In the cloud the database comes from the Bicep (task 4.3), and the migration job
 
 ## Docker Compose
 
-The `migrator` service runs once and exits with code 0, after `sqlserver` is healthy. A second run logs `No migrations were applied. The database is already up to date.` The connection string is built in the compose file from `MSSQL_SA_PASSWORD`, with `TrustServerCertificate=True` because the local SQL Server uses a self-signed certificate. Nothing else depends on the migrator yet: the worker starts using the database in task 2.5 (see `docs/pending.md`).
+The `migrator` service runs once and exits with code 0, after `sqlserver` is healthy. A second run logs `No migrations were applied. The database is already up to date.` The connection string is built in the compose file from `MSSQL_SA_PASSWORD`, with `TrustServerCertificate=True` because the local SQL Server uses a self-signed certificate. The worker waits for it with `service_completed_successfully`, so it never meets a database without the schema.
 
 ## The `System.Security.Cryptography.Pkcs` reference
 

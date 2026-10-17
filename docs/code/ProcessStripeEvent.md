@@ -2,7 +2,7 @@
 
 `src/Payments.Application/Processing/ProcessStripeEvent.cs`, with `IPaymentStore.cs`, `ProcessStripeEventResult.cs`, `ProcessStripeEventOutcome.cs`, `InboxEvent.cs` and `PaymentHistoryEntry.cs` next to it, and `Payment.Apply` in `src/Payments.Domain/Payment.cs`.
 
-Processing use case: turns a Stripe event taken from the queue into a change to the payment, writing inbox, state and history in one transaction (architecture sections 4 to 6). The worker calls it in task 2.5. This document holds the detail that the code leaves out. Keep it in sync when the class changes.
+Processing use case: turns a Stripe event taken from the queue into a change to the payment, writing inbox, state and history in one transaction (architecture sections 4 to 6). `PaymentEventsWorker` calls it (see `docs/code/PaymentEventsWorker.md`). This document holds the detail that the code leaves out. Keep it in sync when the class changes.
 
 ## `ExecuteAsync`
 
@@ -20,7 +20,7 @@ The payload is the message body, the original JSON that the API published. The u
 | 4. Insert the inbox row with the outcome | `Duplicate` if the event ID is already there | Nothing (rollback) | Information |
 | 5. Add the new payment, if unknown, and the history row; commit | `Applied`, `IgnoredOutOfOrder` or `Redundant` | Inbox, payment, history | Information |
 
-The worker (task 2.5) maps the result: `InvalidEvent` and `Conflict` are permanent errors that go to the dead-letter with `Reason`; the other four complete the message.
+The worker maps the result: the four outcomes other than `InvalidEvent` and `Conflict` complete the message. Those two are permanent errors that go to the dead-letter with `Reason` (task 3.2); until then the worker abandons them.
 
 ## Why the inbox comes after the read
 
@@ -74,7 +74,6 @@ Ignored rows carry the outcome as text: `out of order` or `redundant` (constants
 | Retry of transient database errors | Task 3.1. Exceptions propagate to the worker |
 | `TraceId` | M5 (5.6). Always `null` until there is an `Activity` |
 | Duplicate metric (section 6) | M5 (5.7) |
-| Registration in the worker's container | Task 2.5 |
 
 ## Tests
 
