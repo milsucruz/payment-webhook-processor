@@ -37,4 +37,18 @@ public sealed class Payment
     public DateTimeOffset CreatedAt { get; private set; }
 
     public DateTimeOffset UpdatedAt { get; private set; }
+
+    public TransitionOutcome Apply(PaymentStatus requested, long amountRefunded, string eventId, DateTimeOffset occurredAt)
+    {
+        TransitionOutcome outcome = PaymentTransitions.Decide(this.Status, this.AmountRefunded, requested, amountRefunded);
+        if (outcome == TransitionOutcome.Applied)
+        {
+            this.Status = requested;
+            this.AmountRefunded = amountRefunded;
+            this.LastEventId = eventId;
+            this.UpdatedAt = occurredAt;
+        }
+
+        return outcome;
+    }
 }

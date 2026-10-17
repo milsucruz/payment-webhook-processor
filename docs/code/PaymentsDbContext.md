@@ -1,6 +1,6 @@
 # PaymentsDbContext
 
-`src/Payments.Infrastructure/Persistence/PaymentsDbContext.cs`, with `InboxEvent.cs`, `PaymentHistoryEntry.cs`, `UtcDateTimeOffsetConverter.cs` and `Migrations/` next to it, the `Payment` entity in `src/Payments.Domain/Payment.cs`, and the `src/Payments.Migrator` project.
+`src/Payments.Infrastructure/Persistence/PaymentsDbContext.cs`, with `UtcDateTimeOffsetConverter.cs` and `Migrations/` next to it, the `Payment` entity in `src/Payments.Domain/Payment.cs`, the `InboxEvent` and `PaymentHistoryEntry` records in `src/Payments.Application/Processing/`, and the `src/Payments.Migrator` project.
 
 The EF Core mapping of the three tables in section 5 of the architecture, and the executable that applies the migrations. This document holds the detail that the code leaves out. Keep it in sync when the class changes.
 
@@ -9,10 +9,12 @@ The EF Core mapping of the three tables in section 5 of the architecture, and th
 | Entity | Project | Why |
 | --- | --- | --- |
 | `Payment` | Domain | Section 11 puts it there. It has no EF attribute and no `RowVersion`, so Domain still references nothing (`DomainDependencyTests` guards that) |
-| `InboxEvent` | Infrastructure | The inbox is the idempotency mechanism, not a domain concept |
-| `PaymentHistoryEntry` | Infrastructure | A persistence record of what processing did; the use case decides how it is written (task 2.4) |
+| `InboxEvent` | Application | The inbox is the idempotency mechanism, not a domain concept. `ProcessStripeEvent` builds the row and passes it to the `IPaymentStore` port, so the type must be visible to Application |
+| `PaymentHistoryEntry` | Application | A record of what processing did. The use case decides what goes into it (outcome, reason), so it builds it too |
 
-All the mapping is fluent, in `OnModelCreating`. Task 2.3 only gives `Payment` its state: a constructor that EF binds by parameter name and properties with private setters. Its behavior, if any, arrives with the use case in task 2.4.
+All the mapping is fluent, in `OnModelCreating`. Task 2.3 only gave `Payment` its state: a constructor that EF binds by parameter name and properties with private setters. Task 2.4 added `Apply`, its only behavior (see `docs/code/ProcessStripeEvent.md`).
+
+Task 2.4 moved `InboxEvent` and `PaymentHistoryEntry` from Infrastructure to Application. They are insert-only records with no EF attribute, so the mapping didn't change, and `dotnet ef migrations has-pending-model-changes` reports no change: EF compares tables and columns, not CLR namespaces. The generated files in `Migrations/` still name the old types (`Payments.Infrastructure.Persistence.InboxEvent`). They are never edited by hand, and the next migration's snapshot will carry the new names.
 
 These choices are the entity rule in `CLAUDE.md`. EF Core needs neither a parameterless constructor nor public setters: it binds the constructor and writes through private setters. A property with no setter at all is not mapped by convention, which is why the properties keep `private set` instead of being get-only. A `protected` parameterless constructor and `virtual` members are only required by lazy-loading proxies, which subclass the entity; the model has no navigations, so the classes stay `sealed`. Changing state through `SetX` methods would let callers skip `PaymentTransitions`, so state changes go through methods named after the domain operation.
 
