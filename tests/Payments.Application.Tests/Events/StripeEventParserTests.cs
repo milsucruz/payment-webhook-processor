@@ -129,6 +129,37 @@ public class StripeEventParserTests
         Assert.Contains("'payment_intent'", exception.Message);
     }
 
+    [Theory]
+    [InlineData("payment_intent.succeeded", """{"id":"pi_1","amount":2000,"currency":"usd","metadata":{"demo_fault":"poison"}}""")]
+    [InlineData("charge.refunded", """{"id":"ch_1","amount":2000,"amount_refunded":2000,"currency":"usd","payment_intent":"pi_1","metadata":{"demo_fault":"poison"}}""")]
+    public void Demo_fault_is_read_from_the_metadata_of_the_data_object(string eventType, string dataObject)
+    {
+        string payload = WrapEvent(eventType, dataObject);
+
+        PaymentEvent paymentEvent = StripeEventParser.Parse(payload);
+
+        Assert.Equal("poison", paymentEvent.DemoFault);
+    }
+
+    [Theory]
+    [InlineData("""{"id":"pi_1","amount":2000,"currency":"usd"}""")]
+    [InlineData("""{"id":"pi_1","amount":2000,"currency":"usd","metadata":{}}""")]
+    [InlineData("""{"id":"pi_1","amount":2000,"currency":"usd","metadata":null}""")]
+    [InlineData("""{"id":"pi_1","amount":2000,"currency":"usd","metadata":{"demo_fault":1}}""")]
+    public void Missing_or_non_string_demo_fault_is_null_and_not_an_error(string dataObject)
+    {
+        string payload = WrapEvent("payment_intent.succeeded", dataObject);
+
+        PaymentEvent paymentEvent = StripeEventParser.Parse(payload);
+
+        Assert.Null(paymentEvent.DemoFault);
+    }
+
+    private static string WrapEvent(string eventType, string dataObject)
+    {
+        return $$"""{"id":"evt_1","type":"{{eventType}}","created":1792181099,"data":{"object":""" + dataObject + "}}";
+    }
+
     private static DateTimeOffset At(long unixSeconds)
     {
         return DateTimeOffset.FromUnixTimeSeconds(unixSeconds);

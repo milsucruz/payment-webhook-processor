@@ -104,6 +104,7 @@ dotnet test tests/Payments.IntegrationTests                             # integr
 dotnet ef migrations add <Nome> -p src/Payments.Infrastructure -s src/Payments.Migrator -o Persistence/Migrations   # nova migration; depois, docker compose up -d --build migrator
 stripe listen --events payment_intent.created,payment_intent.processing,payment_intent.requires_action,payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled,charge.refunded --forward-to localhost:8080/webhooks/stripe
 stripe trigger payment_intent.succeeded --remove payment_intent:payment_method_types --add "payment_intent:automatic_payment_methods[enabled]=true" --add "payment_intent:automatic_payment_methods[allow_redirects]=never"
+stripe trigger payment_intent.succeeded --remove payment_intent:payment_method_types --add "payment_intent:automatic_payment_methods[enabled]=true" --add "payment_intent:automatic_payment_methods[allow_redirects]=never" --add "payment_intent:metadata[demo_fault]=poison"   # ou transient, slow; o worker do compose liga FaultInjection:Enabled
 dotnet user-secrets set ConnectionStrings:Payments "<a mesma do worker>" --project tools/Simulator   # replay; ou ConnectionStrings__Payments no ambiente
 dotnet user-secrets set Stripe:WebhookSecret <STRIPE_WEBHOOK_SECRET do .env> --project tools/Simulator   # replay; ou Stripe__WebhookSecret
 dotnet user-secrets set Stripe:SecretKey <sk_test_...> --project tools/Simulator   # pay e refund; só aceita chave de teste
