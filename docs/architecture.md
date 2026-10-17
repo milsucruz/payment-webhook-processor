@@ -39,6 +39,8 @@ The problem is real: Stripe resends events when it doesn't get a timely response
 | Outcome | What processing an event did to the payment: applied, ignored as out of order, redundant (the payment is already in the requested state) or conflict |
 | Impossible conflict | An event that contradicts a fact already recorded, such as "paid" for a canceled payment; it goes to the dead-letter |
 | Concurrency conflict | Two events for the same payment were processed at the same time and the other one wrote first; the losing one is processed again from the read. Not the same as an impossible conflict, which never succeeds on a retry |
+| Transient error | A failure that a later attempt can fix, such as the database restarting, paused or throttling, or the network dropping; the event is retried with a wait. Not the same as a concurrency conflict, which is retried at once |
+| Permanent error | A failure that no retry can fix: an unreadable event, an unsupported type or an impossible conflict; it goes straight to the dead-letter with the reason |
 | Valid event sequence | The distinct events of one payment's lifecycle, with no impossible conflict among them and a single highest event: the highest level and, among refunds, the largest refunded amount. Requires action and processing tied at the top, or two distinct events for the same state at the top, don't form one |
 | Resulting state | The payment after every delivery of a sequence was processed. Not the same as a final state, which is canceled or refunded |
 
@@ -486,7 +488,7 @@ The solution follows a lean Clean Architecture: the domain knows nothing about A
 | Project | Contents |
 | --- | --- |
 | `src/Payments.Domain` | `Payment`, `PaymentStatus`, transition table and transition result; no dependencies |
-| `src/Payments.Application` | `ReceiveStripeEvent` and `ProcessStripeEvent` use cases, and the signature verifier, event publisher, payment store (inbox, payments and history in one transaction) and notification ports |
+| `src/Payments.Application` | `ReceiveStripeEvent` and `ProcessStripeEvent` use cases, and the signature verifier, event publisher, payment store (inbox, payments and history in one transaction), transient error detector and notification ports |
 | `src/Payments.Infrastructure` | EF Core, Service Bus, Stripe signature validation and OpenTelemetry configuration |
 | `src/Payments.Api` | Controllers, hub, notification consumer and dashboard files |
 | `src/Payments.Worker` | `BackgroundService` with the `ServiceBusProcessor` |

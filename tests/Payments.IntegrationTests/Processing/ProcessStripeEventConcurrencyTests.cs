@@ -93,7 +93,7 @@ public class ProcessStripeEventConcurrencyTests : IAsyncLifetime
 
     private static Task<ProcessStripeEventResult> Process(IPaymentStore store, string payload)
     {
-        ProcessStripeEvent processStripeEvent = new(store, TimeProvider.System, NullLogger<ProcessStripeEvent>.Instance);
+        ProcessStripeEvent processStripeEvent = new(store, new SqlTransientErrorDetector(), TimeProvider.System, NullLogger<ProcessStripeEvent>.Instance);
         return processStripeEvent.ExecuteAsync(payload, CancellationToken.None);
     }
 

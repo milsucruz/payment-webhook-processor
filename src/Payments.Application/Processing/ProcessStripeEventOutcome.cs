@@ -9,4 +9,5 @@ public enum ProcessStripeEventOutcome
     Conflict,
     InvalidEvent,
     ConcurrencyConflict,
+    TransientFailure,
 }

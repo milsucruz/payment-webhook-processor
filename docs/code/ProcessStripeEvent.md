@@ -20,15 +20,15 @@ The payload is the message body, the original JSON that the API published. The u
 | 4. Insert the inbox row with the outcome | `Duplicate` if the event ID is already there | Nothing (rollback) | Information |
 | 5. Add the new payment, if unknown, and the history row; commit | `Applied`, `IgnoredOutOfOrder` or `Redundant` | Inbox, payment, history | Information |
 
-Steps 2 to 5 are one attempt (`ProcessOnceAsync`). A concurrency conflict in step 4 or 5 rolls the attempt back and starts again at step 2; see "Concurrency conflicts" below.
+Steps 2 to 5 are one attempt (`ProcessOnceAsync`). A concurrency conflict in step 4 or 5 rolls the attempt back and starts again at step 2; see "Concurrency conflicts" below. A transient error in any step from 2 to 5 does the same after a wait; see "Transient errors".
 
-The worker maps the result: `Applied`, `IgnoredOutOfOrder`, `Redundant` and `Duplicate` complete the message. `InvalidEvent` and `Conflict` are permanent errors that go to the dead-letter with `Reason` (task 3.2); until then the worker abandons them. `ConcurrencyConflict` is abandoned for a later delivery.
+The worker maps the result: `Applied`, `IgnoredOutOfOrder`, `Redundant` and `Duplicate` complete the message. `InvalidEvent` and `Conflict` are permanent errors that go to the dead-letter with `Reason` (task 3.2); until then the worker abandons them. `ConcurrencyConflict` and `TransientFailure` are abandoned for a later delivery.
 
 ## Concurrency conflicts
 
 Two replicas (or two of the 4 concurrent calls of one worker) can process events for the same payment at the same time. Both read the same state, and the second write fails: on `RowVersion` when the payment exists, on the `Payments` primary key when both try to create it (section 6). The store reports both as `PaymentStoreWriteResult.ConcurrencyConflict` (see `docs/code/PaymentStore.md`).
 
-`ExecuteAsync` parses once and then calls `ProcessOnceAsync` up to `MaxAttempts` (3) times:
+`ExecuteAsync` parses once and then calls `ProcessOnceAsync` up to `MaxConcurrencyAttempts` (3) times:
 
 | Attempt result | What happens | Log |
 | --- | --- | --- |
@@ -44,6 +44,29 @@ Choices behind it:
 - **A result, not an exception.** The store already reported a duplicate as a value. A concurrency conflict is just as expected, so it gets a value in the same enum (rule in `CLAUDE.md`).
 - **`processedAt` per attempt.** Each attempt reads the clock again, so `UpdatedAt`, `ReceivedAt` and `OccurredAt` are the time of the attempt that committed.
 - **A separate outcome name.** `Conflict` already means impossible conflict (dead-letter). `ConcurrencyConflict` never goes to the dead-letter on its own. Both terms are in the glossary (section 1).
+
+## Transient errors
+
+A transient error is a failure that a later attempt can fix: the database is restarting, paused, throttling, or the network dropped (glossary, section 1). `ExecuteAsync` catches an exception from an attempt only when `ITransientErrorDetector.IsTransient` says so, waits, and runs the attempt again from step 2, in a new transaction (section 6: 1 attempt plus 3 retries, waiting 200 ms, 1 s and 5 s, in `TransientRetryDelays`).
+
+| Attempt result | What happens | Log |
+| --- | --- | --- |
+| Transient exception, retries left | The `await using` disposes the transaction, the use case waits the next delay and starts a new attempt | Warning with the exception, payment, event, delay and retry number |
+| Transient exception after the third retry | Returns `TransientFailure` with a reason naming event and payment, plus the exception message | Warning with the exception |
+| Any other exception | Not caught: it reaches the worker, the SDK abandons the message (see `docs/code/PaymentEventsWorker.md`) | Error, from `ProcessErrorAsync` |
+
+Choices behind it:
+
+- **In the use case, next to the concurrency retry.** Same reason as above: the worker has no `try`/`catch`, and a retry means a new read and a new decision. One loop holds both retries, so the order of events in the loop is easy to follow.
+- **Separate limits.** A transient retry doesn't spend a concurrency attempt and the other way round. A race and a dropped connection are unrelated, and sharing one counter would let one of them use up the other's budget. The worst case is 4 transient attempts plus 3 concurrency attempts, all inside one delivery. `Transient_retries_and_concurrency_attempts_have_separate_limits` covers it.
+- **Not EF Core's `EnableRetryOnFailure`.** A retrying execution strategy has its own delays (exponential, up to 30 s), not the ones in section 6, and it rejects a transaction opened by the caller unless the whole unit runs inside `strategy.ExecuteAsync`. The retry would end up split between EF and the use case. Keeping it here means one place, the delays from the architecture, and a test without a database. This closes the task 2.3 item in `docs/pending.md`.
+- **A port for the classification.** Which exceptions are transient is a SQL Server detail (error numbers on `SqlException`), and Application doesn't reference `Microsoft.Data.SqlClient`. `ITransientErrorDetector` is declared here and implemented by `SqlTransientErrorDetector` in Infrastructure (see `docs/code/SqlTransientErrorDetector.md`). The store doesn't classify its own exceptions: `BeginTransactionAsync`, `FindPaymentAsync` and the two saves can all fail, and wrapping each one would need a `try`/`catch` per method.
+- **An exception filter (`catch ... when`).** An exception that isn't transient is never caught, so its stack trace stays intact and it reaches the worker unchanged. That includes `OperationCanceledException` on shutdown, which the detector never treats as transient.
+- **`Task.Delay` with the `TimeProvider`.** The clock is already injected for `processedAt`. The test's `FixedTimeProvider` records each requested delay and fires it at once, so the test checks the exact delays without waiting 6.2 s.
+- **A result after the last retry, not an exception.** The worker only needs to know "abandon". Returning `TransientFailure` with a reason keeps the outcome in the same enum as the others (rule in `CLAUDE.md`). Warning instead of error: a later delivery may still succeed, and after 5 deliveries Service Bus moves the message to the dead-letter, which has its own alert (section 6).
+- **A commit that fails after the server committed.** If the connection drops while the commit's reply is on its way, the use case sees a transient error but the rows are in the database. The retry then hits the inbox primary key and returns `Duplicate`, so the event is still applied only once.
+
+The full budget of one delivery is the 6.2 s of delays plus the time each attempt takes to fail. With the database down, each attempt waits for the connection timeout (15 s by default), so the four attempts can take about 66 s, more than the 60 s lock. The lock is not lost: the processor renews it while the handler runs (`MaxAutoLockRenewalDuration`, 5 min by default; see `docs/code/PaymentEventsWorker.md`).
 
 ## Why the inbox comes after the read
 
@@ -93,7 +116,6 @@ Ignored rows carry the outcome as text: `out of order` or `redundant` (constants
 
 | Missing | Where |
 | --- | --- |
-| Retry of transient database errors | Task 3.1. Exceptions propagate to the worker |
 | `TraceId` | M5 (5.6). Always `null` until there is an `Activity` |
 | Duplicate metric (section 6) | M5 (5.7) |
 
@@ -105,12 +127,14 @@ The task's done criterion maps to `Duplicate_event_writes_nothing_and_returns_du
 
 For the retry, `InMemoryPaymentStore.ConcurrencyConflictsToReport` makes `CommitAsync` report a conflict that many times. `Concurrency_conflict_is_retried_from_the_read_in_a_new_transaction` checks two transactions and one commit, and `Concurrency_conflict_on_every_attempt_writes_nothing_and_returns_the_reason` checks the limit.
 
+For transient errors, `InMemoryPaymentStore.CommitExceptions` holds exceptions that `CommitAsync` throws one per call, and `TestTransientErrorDetector` treats only `TransientTestException` as transient. Task 3.1's done criterion maps to `Transient_error_on_two_attempts_is_retried_and_the_third_attempt_applies_the_event`: two transient failures, three transactions, one commit, delays of 200 ms and 1 s. `Transient_error_on_every_attempt_writes_nothing_and_returns_transient_failure_after_three_retries` checks the limit and the three delays, and `Exception_that_is_not_transient_propagates_without_retry` checks the filter. Turning the filter off (`when (false && ...)`) fails the done-criterion test with the `TransientTestException` (mutation check in the task 3.1 session).
+
 The double can't produce a real race, so task 2.6's done criterion is checked by `tests/Payments.IntegrationTests/Processing/ProcessStripeEventConcurrencyTests.cs`, against SQL Server in Testcontainers:
 
 - Two `ProcessStripeEvent` instances run at the same time, each with its own `DbContext`, on `payment_intent.requires_action` and `payment_intent.succeeded` for the same `pi_`. The events are inline JSON, because each fixture has a different `pi_`.
 - `BarrierPaymentStore` wraps `PaymentStore` and holds each run after its first read until both have read, so both decide from the same state and the race happens every time, not by luck. It also counts the `ConcurrencyConflict` results, and the test asserts exactly one, which proves the race really happened.
 - Two cases: existing payment in `created` (`RowVersion`) and unknown payment (`PK_Payments`). Both end `paid` with `LastEventId` from `succeeded`, two inbox rows and two history rows. Whichever wins, the other is applied or ignored as out of order on its retry.
-- With `MaxAttempts = 1` (no retry), both cases fail (mutation check in the task 2.6 session).
+- With `MaxConcurrencyAttempts = 1` (no retry; the constant was `MaxAttempts` until task 3.1), both cases fail (mutation check in the task 2.6 session).
 
 ### Property test
 

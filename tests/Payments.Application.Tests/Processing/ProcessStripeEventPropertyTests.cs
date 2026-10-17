@@ -137,7 +137,7 @@ public class ProcessStripeEventPropertyTests
     private static async Task<ResultingState> Deliver(StripeEvent[] deliveries)
     {
         InMemoryPaymentStore store = new();
-        ProcessStripeEvent processStripeEvent = new(store, new FixedTimeProvider(processedAt), NullLogger<ProcessStripeEvent>.Instance);
+        ProcessStripeEvent processStripeEvent = new(store, new TestTransientErrorDetector(), new FixedTimeProvider(processedAt), NullLogger<ProcessStripeEvent>.Instance);
 
         foreach (StripeEvent delivery in deliveries)
         {

@@ -21,6 +21,8 @@ public sealed class InMemoryPaymentStore : IPaymentStore
 
     public int ConcurrencyConflictsToReport { get; set; }
 
+    public Queue<Exception> CommitExceptions { get; } = [];
+
     public Task<IAsyncDisposable> BeginTransactionAsync(CancellationToken cancellationToken)
     {
         this.TransactionsStarted++;
@@ -55,6 +57,11 @@ public sealed class InMemoryPaymentStore : IPaymentStore
 
     public Task<PaymentStoreWriteResult> CommitAsync(CancellationToken cancellationToken)
     {
+        if (this.CommitExceptions.TryDequeue(out Exception? exception))
+        {
+            throw exception;
+        }
+
         if (this.ConcurrencyConflictsToReport > 0)
         {
             this.ConcurrencyConflictsToReport--;
