@@ -267,7 +267,7 @@ Container Apps scales the worker by queue length, with a KEDA rule of type `azur
 
 ### Fault injection for demos
 
-A test payment with the `demo_fault` metadata forces a behavior in the worker: `transient` fails the first two attempts of each delivery with a transient error, so the third attempt of the retry above applies it; `poison` always fails with an error that is not transient, so it becomes a poison message and reaches the dead-letter after 5 deliveries; and `slow` delays each attempt 10 s. This makes it possible to show retry, dead-letter and scaling without relying on luck. Injection only exists when the `FaultInjection:Enabled` setting is on.
+A test payment with the `demo_fault` metadata forces a behavior in the worker: `transient` fails the first two attempts of each delivery with a transient error, so the third attempt of the retry above applies it; `poison` always fails with an error that is not transient, so it becomes a poison message and reaches the dead-letter after 5 deliveries; and `slow` delays each delivery 10 s. This makes it possible to show retry, dead-letter and scaling without relying on luck. Injection only exists when the `FaultInjection:Enabled` setting is on.
 
 ## 7. Real time with SignalR
 

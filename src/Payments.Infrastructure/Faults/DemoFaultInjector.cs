@@ -34,15 +34,21 @@ public sealed class DemoFaultInjector : IFaultInjector
             case "poison":
                 this.LogInjected(paymentEvent, attempt);
                 throw new InvalidOperationException($"Demo fault 'poison' on attempt {attempt} of event {paymentEvent.EventId}.");
-            case "slow":
+            case "slow" when attempt == 1:
                 this.LogInjected(paymentEvent, attempt);
                 await Task.Delay(slowDelay, this.timeProvider, cancellationToken);
                 return;
+            case "slow":
+                return;
             default:
-                this.logger.LogWarning(
-                    "Ignored unknown demo fault '{DemoFault}' on event {EventId}",
-                    paymentEvent.DemoFault,
-                    paymentEvent.EventId);
+                if (attempt == 1)
+                {
+                    this.logger.LogWarning(
+                        "Ignored unknown demo fault '{DemoFault}' on event {EventId}",
+                        paymentEvent.DemoFault,
+                        paymentEvent.EventId);
+                }
+
                 return;
         }
     }

@@ -1,6 +1,7 @@
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Payments.Application.Events;
+using Payments.Application.Tests.Webhooks;
 using Payments.Domain;
 using Payments.Infrastructure.Faults;
 using Payments.Infrastructure.Persistence;
@@ -11,6 +12,7 @@ public class DemoFaultInjectorTests
 {
     private readonly FakeTimeProvider timeProvider = new();
     private readonly SqlTransientErrorDetector transientErrorDetector = new();
+    private readonly CollectingLogger<DemoFaultInjector> logger = new();
 
     [Theory]
     [InlineData(1)]
@@ -60,6 +62,32 @@ public class DemoFaultInjectorTests
     }
 
     [Theory]
+    [InlineData(2)]
+    [InlineData(4)]
+    public async Task Slow_waits_only_on_the_first_attempt_of_a_delivery(int attempt)
+    {
+        DemoFaultInjector injector = this.CreateInjector();
+
+        Task injection = injector.InjectAsync(EventWith("slow"), attempt, CancellationToken.None);
+
+        Assert.True(injection.IsCompletedSuccessfully);
+        await injection;
+    }
+
+    [Fact]
+    public async Task Unknown_demo_fault_is_logged_only_on_the_first_attempt()
+    {
+        DemoFaultInjector injector = this.CreateInjector();
+
+        await injector.InjectAsync(EventWith("unknown"), 1, CancellationToken.None);
+        await injector.InjectAsync(EventWith("unknown"), 2, CancellationToken.None);
+
+        LogEntry entry = Assert.Single(this.logger.Entries);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Contains("unknown", entry.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("unknown")]
     [InlineData("Poison")]
@@ -80,6 +108,6 @@ public class DemoFaultInjectorTests
 
     private DemoFaultInjector CreateInjector()
     {
-        return new DemoFaultInjector(this.timeProvider, NullLogger<DemoFaultInjector>.Instance);
+        return new DemoFaultInjector(this.timeProvider, this.logger);
     }
 }

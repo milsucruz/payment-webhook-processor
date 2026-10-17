@@ -289,7 +289,7 @@ public class ProcessStripeEventTests
     }
 
     [Fact]
-    public async Task Fault_injector_runs_inside_each_attempt_with_the_attempt_number()
+    public async Task Fault_injector_runs_before_each_attempt_with_the_attempt_number()
     {
         string payload = ReadFixture("payment_intent.succeeded.json");
         PaymentEvent paymentEvent = StripeEventParser.Parse(payload);
@@ -300,9 +300,23 @@ public class ProcessStripeEventTests
 
         Assert.Equal(new ProcessStripeEventResult(ProcessStripeEventOutcome.Applied), result);
         Assert.Equal([(paymentEvent.EventId, 1), (paymentEvent.EventId, 2), (paymentEvent.EventId, 3)], this.faultInjector.Calls);
-        Assert.Equal(3, this.store.TransactionsStarted);
+        Assert.Equal(1, this.store.TransactionsStarted);
         Assert.Equal(1, this.store.Commits);
         Assert.Single(this.store.InboxEvents);
+    }
+
+    [Fact]
+    public async Task Time_spent_in_the_fault_injector_is_not_hidden_in_the_recorded_times()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        this.faultInjector.OnInject = () => this.timeProvider.Advance(TimeSpan.FromSeconds(10));
+
+        await this.Process(payload);
+
+        DateTimeOffset expectedAt = processedAt.AddSeconds(10);
+        Assert.Equal(expectedAt, Assert.Single(this.store.InboxEvents).ReceivedAt);
+        Assert.Equal(expectedAt, Assert.Single(this.store.Payments.Values).UpdatedAt);
+        Assert.Equal(expectedAt, Assert.Single(this.store.History).OccurredAt);
     }
 
     [Fact]
@@ -313,7 +327,7 @@ public class ProcessStripeEventTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => this.Process(payload));
 
-        Assert.Equal(1, this.store.TransactionsStarted);
+        Assert.Equal(0, this.store.TransactionsStarted);
         Assert.Equal(0, this.store.Commits);
         Assert.Empty(this.store.Payments);
         Assert.Empty(this.store.InboxEvents);

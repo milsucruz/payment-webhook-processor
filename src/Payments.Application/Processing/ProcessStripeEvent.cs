@@ -105,9 +105,9 @@ public class ProcessStripeEvent
 
     private async Task<ProcessStripeEventResult> ProcessOnceAsync(PaymentEvent paymentEvent, string payload, int attempt, CancellationToken cancellationToken)
     {
+        await this.faultInjector.InjectAsync(paymentEvent, attempt, cancellationToken);
         DateTimeOffset processedAt = this.timeProvider.GetUtcNow();
         await using IAsyncDisposable transaction = await this.paymentStore.BeginTransactionAsync(cancellationToken);
-        await this.faultInjector.InjectAsync(paymentEvent, attempt, cancellationToken);
 
         Payment? existingPayment = await this.paymentStore.FindPaymentAsync(paymentEvent.PaymentIntentId, cancellationToken);
         PaymentStatus? fromStatus = existingPayment?.Status;

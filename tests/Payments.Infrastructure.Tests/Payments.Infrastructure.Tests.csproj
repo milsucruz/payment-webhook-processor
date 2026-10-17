@@ -20,4 +20,8 @@
     <ProjectReference Include="..\..\src\Payments.Infrastructure\Payments.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\Payments.Application.Tests\Webhooks\CollectingLogger.cs" Link="Faults\CollectingLogger.cs" />
+  </ItemGroup>
+
 </Project>
