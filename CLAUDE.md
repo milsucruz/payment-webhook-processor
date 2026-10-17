@@ -66,6 +66,11 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
   - Controller e worker são adaptadores: traduzem HTTP ou mensagem em chamada de caso de uso, e o resultado em código HTTP ou em conclusão da mensagem. Não têm `try`/`catch`, não leem o conteúdo do evento e não referenciam `Payments.Infrastructure`, que só aparece em `Program.cs` para registrar as implementações.
   - Caso de uso é uma classe concreta em Application, sem interface, com um único método público `ExecuteAsync`. Desfechos esperados, inclusive falha de infraestrutura que ele sabe tratar, voltam como um enum de resultado, não como exceção. O caso de uso registra o log desses desfechos.
   - Toda dependência externa de um caso de uso é um port (interface) declarado em Application e implementado em Infrastructure.
+- Entidades (seção 5 da arquitetura):
+  - Propriedades `public get; private set;` e um construtor que recebe todos os campos obrigatórios; o EF Core usa esse construtor ao ler do banco.
+  - O estado só muda por métodos com nome do domínio (ex.: `Apply`), nunca por setter público ou `SetX`.
+  - Registros que só são inseridos (inbox, histórico) usam `required` e `init`.
+  - Classes `sealed`, sem construtor vazio e sem `virtual`, enquanto não houver lazy loading.
 - Nunca `var`, em nenhum caso: toda variável declara o tipo explícito (`string payload = ...`). Com `new`, use o `new(...)` com tipo alvo (`StreamReader reader = new(...)`). O `.editorconfig` faz o build falhar com `var` (IDE0008).
 - Valores monetários em centavos, como `long`. Nunca `decimal`, `double` ou `float`.
 - Datas em UTC, com `DateTimeOffset` no código e `datetime2` no banco.

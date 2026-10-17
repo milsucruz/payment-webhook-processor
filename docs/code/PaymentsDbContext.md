@@ -14,6 +14,8 @@ The EF Core mapping of the three tables in section 5 of the architecture, and th
 
 All the mapping is fluent, in `OnModelCreating`. Task 2.3 only gives `Payment` its state: a constructor that EF binds by parameter name and properties with private setters. Its behavior, if any, arrives with the use case in task 2.4.
 
+These choices are the entity rule in `CLAUDE.md`. EF Core needs neither a parameterless constructor nor public setters: it binds the constructor and writes through private setters. A property with no setter at all is not mapped by convention, which is why the properties keep `private set` instead of being get-only. A `protected` parameterless constructor and `virtual` members are only required by lazy-loading proxies, which subclass the entity; the model has no navigations, so the classes stay `sealed`. Changing state through `SetX` methods would let callers skip `PaymentTransitions`, so state changes go through methods named after the domain operation.
+
 ## `RowVersion` as a shadow property
 
 `RowVersion` exists in the model and the table, but not in the `Payment` class. EF reads it on load, sends it in the `WHERE` of every `UPDATE` and throws `DbUpdateConcurrencyException` when no row matches (task 2.6). Putting a `byte[] RowVersion` on the domain class would leak a SQL Server detail into Domain.
