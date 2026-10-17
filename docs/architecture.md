@@ -39,6 +39,8 @@ The problem is real: Stripe resends events when it doesn't get a timely response
 | Outcome | What processing an event did to the payment: applied, ignored as out of order, redundant (the payment is already in the requested state) or conflict |
 | Impossible conflict | An event that contradicts a fact already recorded, such as "paid" for a canceled payment; it goes to the dead-letter |
 | Concurrency conflict | Two events for the same payment were processed at the same time and the other one wrote first; the losing one is processed again from the read. Not the same as an impossible conflict, which never succeeds on a retry |
+| Valid event sequence | The distinct events of one payment's lifecycle, with no impossible conflict among them and a single highest event: the highest level and, among refunds, the largest refunded amount. Requires action and processing tied at the top, or two distinct events for the same state at the top, don't form one |
+| Resulting state | The payment after every delivery of a sequence was processed. Not the same as a final state, which is canceled or refunded |
 
 ## 2. Requirements
 
@@ -504,7 +506,7 @@ The controller and the worker are adapters. They translate HTTP or a queue messa
 | --- | --- | --- |
 | Unit, domain | xUnit | Every combination of current state and event in the transition table |
 | Unit, application | xUnit with in-memory test doubles | `ReceiveStripeEvent` results and logs; duplicate, unknown payment, concurrency conflict and partial refund |
-| Property | xUnit with generated permutations | Any order and any repetition of a valid event sequence leads to the same final state |
+| Property | xUnit with generated permutations | Any order and any repetition of a valid event sequence leads to the same resulting state |
 | Integration | Testcontainers with SQL Server and the Service Bus emulator | A duplicate delivery writes one row; a poison message reaches the dead-letter after 5 deliveries, while an impossible conflict ("paid" for a canceled payment) reaches it on the first delivery; a crash after commit doesn't duplicate |
 | API | `WebApplicationFactory` | An invalid signature returns `400`; a valid signature returns `200` and publishes a message |
 | Contract | JSON files of real Stripe events in `tests/fixtures` | The parser accepts the format Stripe actually sends |

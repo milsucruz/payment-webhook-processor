@@ -111,3 +111,22 @@ The double can't produce a real race, so task 2.6's done criterion is checked by
 - `BarrierPaymentStore` wraps `PaymentStore` and holds each run after its first read until both have read, so both decide from the same state and the race happens every time, not by luck. It also counts the `ConcurrencyConflict` results, and the test asserts exactly one, which proves the race really happened.
 - Two cases: existing payment in `created` (`RowVersion`) and unknown payment (`PK_Payments`). Both end `paid` with `LastEventId` from `succeeded`, two inbox rows and two history rows. Whichever wins, the other is applied or ignored as out of order on its retry.
 - With `MaxAttempts = 1` (no retry), both cases fail (mutation check in the task 2.6 session).
+
+### Property test
+
+`tests/Payments.Application.Tests/Processing/ProcessStripeEventPropertyTests.cs` checks the central claim of section 11: any order and any repetition of a valid event sequence (glossary, section 1) leads to the same resulting state. It runs the use case rather than `Payment.Apply` alone because repetition is handled by the inbox (`Duplicate`) and an unknown payment is created by the use case, from whichever event arrives first. A domain-only test would have to copy that logic.
+
+- **Lifecycles.** Five of them, written by hand with the expected status, refunded amount and `LastEventId`: authenticated, processed and refunded in three steps (7 events); declined twice, paid on retry and partially refunded twice (7); authentication failed then canceled (4); authentication failed with no retry (3); processed asynchronously then paid (3). The events are inline JSON with one `pi_`, because each fixture has a different one. The fixtures stay covered by the parser tests.
+- **Permutations are exhaustive.** Every order is delivered, up to 7! = 5040 per lifecycle, and the test asserts it ran n! orders. With so few events, enumerating them all is stronger than sampling, and it needs no library. FsCheck would add shrinking, which a list of 7 events doesn't need.
+- **Repetitions are sampled.** 1000 runs per lifecycle with a fixed seed: each event is delivered 1 to 3 times and the whole list is shuffled, so copies also arrive between other events. The seed makes a failure reproducible.
+- **What is compared.** Status, amount, refunded amount, currency, `LastEventId`, and the counts of inbox and history rows, which must both equal the number of distinct events. `CreatedAt` and `UpdatedAt` are left out: they are processing times, not facts from the events. A conflict or a rejected event would write no inbox row, so the row count also catches those. A failure prints the delivery order.
+- **The limit of the property.** When requires action and processing are the highest events, the last one to arrive wins (the switch rule of section 6), so the order matters. `Requires_action_and_processing_as_the_highest_events_end_in_the_last_to_arrive` pins that behavior, and the glossary excludes such sequences from "valid". The same holds for two distinct events for the same state at the top: `LastEventId` is the first to arrive.
+
+Mutation checks (task 2.7 session), all reverted:
+
+| Mutation | Result |
+| --- | --- |
+| A smaller partial refund is applied (`!=` instead of `>` in `CompareRefunds`) | Both property tests fail. The first version had no lifecycle that ended with two partial refunds, because the full refund wins whatever the order, and the mutation passed. That is why the second lifecycle has two partial refunds |
+| Switch between requires action and processing turned off | The pinning fact fails |
+| The use case ignores `DuplicateEvent` from the inbox | The repetition test fails on the history row count |
+| `>=` instead of `>` between levels | Passes. It is an equivalent mutant: the only distinct states that share a level are requires action and processing, which have their own rule, and paid and canceled, which are an impossible conflict |
