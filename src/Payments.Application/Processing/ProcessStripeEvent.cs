@@ -9,6 +9,7 @@ public class ProcessStripeEvent
 {
     public const string OutOfOrderReason = "out of order";
     public const string RedundantReason = "redundant";
+    public const int MaxAttempts = 3;
 
     private readonly IPaymentStore paymentStore;
     private readonly TimeProvider timeProvider;
@@ -34,6 +35,32 @@ public class ProcessStripeEvent
             return new ProcessStripeEventResult(ProcessStripeEventOutcome.InvalidEvent, exception.Message);
         }
 
+        for (int attempt = 1; ; attempt++)
+        {
+            ProcessStripeEventResult result = await this.ProcessOnceAsync(paymentEvent, payload, cancellationToken);
+            if (result.Outcome != ProcessStripeEventOutcome.ConcurrencyConflict)
+            {
+                return result;
+            }
+
+            if (attempt == MaxAttempts)
+            {
+                string reason = $"Event {paymentEvent.EventId} for payment {paymentEvent.PaymentIntentId} hit a concurrency conflict on all {MaxAttempts} attempts.";
+                this.logger.LogWarning("Concurrency conflict: {Reason}", reason);
+                return new ProcessStripeEventResult(ProcessStripeEventOutcome.ConcurrencyConflict, reason);
+            }
+
+            this.logger.LogInformation(
+                "Concurrency conflict on payment {PaymentIntentId} for event {EventId}, retrying (attempt {Attempt} of {MaxAttempts})",
+                paymentEvent.PaymentIntentId,
+                paymentEvent.EventId,
+                attempt,
+                MaxAttempts);
+        }
+    }
+
+    private async Task<ProcessStripeEventResult> ProcessOnceAsync(PaymentEvent paymentEvent, string payload, CancellationToken cancellationToken)
+    {
         DateTimeOffset processedAt = this.timeProvider.GetUtcNow();
         await using IAsyncDisposable transaction = await this.paymentStore.BeginTransactionAsync(cancellationToken);
 
@@ -60,10 +87,16 @@ public class ProcessStripeEvent
             Outcome = outcome,
             Payload = payload,
         };
-        if (!await this.paymentStore.TryAddInboxEventAsync(inboxEvent, cancellationToken))
+        PaymentStoreWriteResult inboxResult = await this.paymentStore.AddInboxEventAsync(inboxEvent, cancellationToken);
+        if (inboxResult == PaymentStoreWriteResult.DuplicateEvent)
         {
             this.logger.LogInformation("Event {EventId} was already processed", paymentEvent.EventId);
             return new ProcessStripeEventResult(ProcessStripeEventOutcome.Duplicate);
+        }
+
+        if (inboxResult == PaymentStoreWriteResult.ConcurrencyConflict)
+        {
+            return new ProcessStripeEventResult(ProcessStripeEventOutcome.ConcurrencyConflict);
         }
 
         if (existingPayment is null)
@@ -90,7 +123,10 @@ public class ProcessStripeEvent
             OccurredAt = processedAt,
         });
 
-        await this.paymentStore.CommitAsync(cancellationToken);
+        if (await this.paymentStore.CommitAsync(cancellationToken) == PaymentStoreWriteResult.ConcurrencyConflict)
+        {
+            return new ProcessStripeEventResult(ProcessStripeEventOutcome.ConcurrencyConflict);
+        }
 
         this.logger.LogInformation(
             "Event {EventId} for payment {PaymentIntentId}: {Outcome}",

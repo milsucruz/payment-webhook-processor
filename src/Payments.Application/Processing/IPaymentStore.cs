@@ -8,11 +8,11 @@ public interface IPaymentStore
 
     Task<Payment?> FindPaymentAsync(string paymentIntentId, CancellationToken cancellationToken);
 
-    Task<bool> TryAddInboxEventAsync(InboxEvent inboxEvent, CancellationToken cancellationToken);
+    Task<PaymentStoreWriteResult> AddInboxEventAsync(InboxEvent inboxEvent, CancellationToken cancellationToken);
 
     void AddPayment(Payment payment);
 
     void AddHistoryEntry(PaymentHistoryEntry entry);
 
-    Task CommitAsync(CancellationToken cancellationToken);
+    Task<PaymentStoreWriteResult> CommitAsync(CancellationToken cancellationToken);
 }

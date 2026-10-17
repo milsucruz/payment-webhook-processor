@@ -162,6 +162,43 @@ public class ProcessStripeEventTests
         Assert.Equal(LogLevel.Warning, log.Level);
     }
 
+    [Fact]
+    public async Task Concurrency_conflict_is_retried_from_the_read_in_a_new_transaction()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        PaymentEvent paymentEvent = StripeEventParser.Parse(payload);
+        this.store.ConcurrencyConflictsToReport = 1;
+
+        ProcessStripeEventResult result = await this.Process(payload);
+
+        Assert.Equal(new ProcessStripeEventResult(ProcessStripeEventOutcome.Applied), result);
+        Assert.Equal(2, this.store.TransactionsStarted);
+        Assert.Equal(1, this.store.Commits);
+        Assert.Equal(PaymentStatus.Paid, this.store.Payments[paymentEvent.PaymentIntentId].Status);
+        Assert.Single(this.store.InboxEvents);
+        Assert.Single(this.store.History);
+        Assert.Contains(this.logger.Entries, entry => entry.Level == LogLevel.Information && entry.Message.Contains("Concurrency conflict", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Concurrency_conflict_on_every_attempt_writes_nothing_and_returns_the_reason()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        PaymentEvent paymentEvent = StripeEventParser.Parse(payload);
+        this.store.ConcurrencyConflictsToReport = ProcessStripeEvent.MaxAttempts;
+
+        ProcessStripeEventResult result = await this.Process(payload);
+
+        Assert.Equal(ProcessStripeEventOutcome.ConcurrencyConflict, result.Outcome);
+        Assert.Contains(paymentEvent.EventId, result.Reason, StringComparison.Ordinal);
+        Assert.Equal(ProcessStripeEvent.MaxAttempts, this.store.TransactionsStarted);
+        Assert.Equal(0, this.store.Commits);
+        Assert.Empty(this.store.Payments);
+        Assert.Empty(this.store.InboxEvents);
+        Assert.Empty(this.store.History);
+        Assert.Contains(this.logger.Entries, entry => entry.Level == LogLevel.Warning);
+    }
+
     [Theory]
     [InlineData("not json", "not valid JSON")]
     [InlineData("""{"id":"evt_x","type":"customer.created","created":1,"data":{"object":{}}}""", "customer.created")]
