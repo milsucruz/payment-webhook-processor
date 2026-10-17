@@ -41,6 +41,8 @@ The problem is real: Stripe resends events when it doesn't get a timely response
 | Concurrency conflict | Two events for the same payment were processed at the same time and the other one wrote first; the losing one is processed again from the read. Not the same as an impossible conflict, which never succeeds on a retry |
 | Transient error | A failure that a later attempt can fix, such as the database restarting, paused or throttling, or the network dropping; the event is retried with a wait. Not the same as a concurrency conflict, which is retried at once |
 | Permanent error | A failure that no retry can fix: an unreadable event, an unsupported type or an impossible conflict; it goes straight to the dead-letter with the reason |
+| Poison message | A message that fails on every delivery with an error that is neither transient nor permanent; Service Bus moves it to the dead-letter after 5 deliveries. Not the same as a permanent error, which goes there on the first delivery |
+| Demo fault | A failure forced on purpose by the `demo_fault` metadata of a test payment, to show retry, dead-letter or scaling; it only exists when fault injection is turned on |
 | Valid event sequence | The distinct events of one payment's lifecycle, with no impossible conflict among them and a single highest event: the highest level and, among refunds, the largest refunded amount. Requires action and processing tied at the top, or two distinct events for the same state at the top, don't form one |
 | Resulting state | The payment after every delivery of a sequence was processed. Not the same as a final state, which is canceled or refunded |
 
@@ -265,7 +267,7 @@ Container Apps scales the worker by queue length, with a KEDA rule of type `azur
 
 ### Fault injection for demos
 
-A test payment with the `demo_fault` metadata forces a behavior in the worker: `transient` fails the first two attempts, `poison` always fails, and `slow` delays 10 s. This makes it possible to show retry, dead-letter and scaling without relying on luck. Injection only exists when the `FaultInjection:Enabled` setting is on.
+A test payment with the `demo_fault` metadata forces a behavior in the worker: `transient` fails the first two attempts of each delivery with a transient error, so the third attempt of the retry above applies it; `poison` always fails with an error that is not transient, so it becomes a poison message and reaches the dead-letter after 5 deliveries; and `slow` delays each delivery 10 s. This makes it possible to show retry, dead-letter and scaling without relying on luck. Injection only exists when the `FaultInjection:Enabled` setting is on.
 
 ## 7. Real time with SignalR
 
@@ -488,7 +490,7 @@ The solution follows a lean Clean Architecture: the domain knows nothing about A
 | Project | Contents |
 | --- | --- |
 | `src/Payments.Domain` | `Payment`, `PaymentStatus`, transition table and transition result; no dependencies |
-| `src/Payments.Application` | `ReceiveStripeEvent` and `ProcessStripeEvent` use cases, and the signature verifier, event publisher, payment store (inbox, payments and history in one transaction), transient error detector and notification ports |
+| `src/Payments.Application` | `ReceiveStripeEvent` and `ProcessStripeEvent` use cases, and the signature verifier, event publisher, payment store (inbox, payments and history in one transaction), transient error detector, fault injector and notification ports |
 | `src/Payments.Infrastructure` | EF Core, Service Bus, Stripe signature validation and OpenTelemetry configuration |
 | `src/Payments.Api` | Controllers, hub, notification consumer and dashboard files |
 | `src/Payments.Worker` | `BackgroundService` with the `ServiceBusProcessor` |

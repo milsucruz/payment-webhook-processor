@@ -2,6 +2,7 @@ using Azure.Messaging.ServiceBus;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Payments.Application.Processing;
+using Payments.Infrastructure.Faults;
 using Payments.Infrastructure.Messaging;
 using Payments.Infrastructure.Persistence;
 using Payments.Worker;
@@ -40,6 +41,15 @@ builder.Services.AddDbContext<PaymentsDbContext>(options => options.UseSqlServer
 builder.Services.AddScoped<IPaymentStore, PaymentStore>();
 builder.Services.AddSingleton<ITransientErrorDetector, SqlTransientErrorDetector>();
 builder.Services.AddSingleton(TimeProvider.System);
+if (builder.Configuration.GetValue<bool>("FaultInjection:Enabled"))
+{
+    builder.Services.AddSingleton<IFaultInjector, DemoFaultInjector>();
+}
+else
+{
+    builder.Services.AddSingleton<IFaultInjector, NoFaultInjector>();
+}
+
 builder.Services.AddScoped<ProcessStripeEvent>();
 
 builder.Services.AddHostedService<PaymentEventsWorker>();

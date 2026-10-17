@@ -31,7 +31,7 @@ public static class StripeEventParser
         DateTimeOffset createdAt = DateTimeOffset.FromUnixTimeSeconds(ReadLong(root, "created"));
         JsonElement dataObject = ReadObject(ReadObject(root, "data"), "object");
 
-        return eventType switch
+        PaymentEvent paymentEvent = eventType switch
         {
             "payment_intent.created" => FromPaymentIntent(eventId, eventType, createdAt, dataObject, PaymentStatus.Created),
             "payment_intent.requires_action" => FromPaymentIntent(eventId, eventType, createdAt, dataObject, PaymentStatus.RequiresAction),
@@ -42,6 +42,21 @@ public static class StripeEventParser
             "charge.refunded" => FromRefundedCharge(eventId, eventType, createdAt, dataObject),
             _ => throw new InvalidStripeEventException($"Event {eventId} has the unsupported type '{eventType}'."),
         };
+
+        return paymentEvent with { DemoFault = ReadDemoFault(dataObject) };
+    }
+
+    private static string? ReadDemoFault(JsonElement dataObject)
+    {
+        if (dataObject.TryGetProperty("metadata", out JsonElement metadata)
+            && metadata.ValueKind == JsonValueKind.Object
+            && metadata.TryGetProperty("demo_fault", out JsonElement demoFault)
+            && demoFault.ValueKind == JsonValueKind.String)
+        {
+            return demoFault.GetString();
+        }
+
+        return null;
     }
 
     private static PaymentEvent FromPaymentIntent(

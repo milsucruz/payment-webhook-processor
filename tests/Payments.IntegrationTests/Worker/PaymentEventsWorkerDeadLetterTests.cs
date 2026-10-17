@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Payments.Application.Processing;
+using Payments.Infrastructure.Faults;
 using Payments.Infrastructure.Persistence;
 using Payments.Worker;
 using Testcontainers.ServiceBus;
@@ -63,6 +64,7 @@ public class PaymentEventsWorkerDeadLetterTests : IAsyncLifetime
         services.AddScoped<IPaymentStore, PaymentStore>();
         services.AddSingleton<ITransientErrorDetector, SqlTransientErrorDetector>();
         services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<IFaultInjector, NoFaultInjector>();
         services.AddScoped<ProcessStripeEvent>();
         return services.BuildServiceProvider();
     }

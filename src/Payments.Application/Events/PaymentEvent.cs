@@ -10,4 +10,5 @@ public sealed record PaymentEvent(
     PaymentStatus RequestedStatus,
     long Amount,
     long AmountRefunded,
-    string Currency);
+    string Currency,
+    string? DemoFault = null);

@@ -16,17 +16,20 @@ public class ProcessStripeEvent
 
     private readonly IPaymentStore paymentStore;
     private readonly ITransientErrorDetector transientErrorDetector;
+    private readonly IFaultInjector faultInjector;
     private readonly TimeProvider timeProvider;
     private readonly ILogger<ProcessStripeEvent> logger;
 
     public ProcessStripeEvent(
         IPaymentStore paymentStore,
         ITransientErrorDetector transientErrorDetector,
+        IFaultInjector faultInjector,
         TimeProvider timeProvider,
         ILogger<ProcessStripeEvent> logger)
     {
         this.paymentStore = paymentStore;
         this.transientErrorDetector = transientErrorDetector;
+        this.faultInjector = faultInjector;
         this.timeProvider = timeProvider;
         this.logger = logger;
     }
@@ -44,14 +47,16 @@ public class ProcessStripeEvent
             return new ProcessStripeEventResult(ProcessStripeEventOutcome.InvalidEvent, exception.Message);
         }
 
+        int attempt = 0;
         int concurrencyAttempts = 0;
         int transientRetries = 0;
         while (true)
         {
+            attempt++;
             ProcessStripeEventResult result;
             try
             {
-                result = await this.ProcessOnceAsync(paymentEvent, payload, cancellationToken);
+                result = await this.ProcessOnceAsync(paymentEvent, payload, attempt, cancellationToken);
             }
             catch (Exception exception) when (this.transientErrorDetector.IsTransient(exception))
             {
@@ -98,8 +103,9 @@ public class ProcessStripeEvent
         }
     }
 
-    private async Task<ProcessStripeEventResult> ProcessOnceAsync(PaymentEvent paymentEvent, string payload, CancellationToken cancellationToken)
+    private async Task<ProcessStripeEventResult> ProcessOnceAsync(PaymentEvent paymentEvent, string payload, int attempt, CancellationToken cancellationToken)
     {
+        await this.faultInjector.InjectAsync(paymentEvent, attempt, cancellationToken);
         DateTimeOffset processedAt = this.timeProvider.GetUtcNow();
         await using IAsyncDisposable transaction = await this.paymentStore.BeginTransactionAsync(cancellationToken);
 

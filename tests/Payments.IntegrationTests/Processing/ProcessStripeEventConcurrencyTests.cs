@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Payments.Application.Processing;
 using Payments.Domain;
+using Payments.Infrastructure.Faults;
 using Payments.Infrastructure.Persistence;
 using Testcontainers.MsSql;
 
@@ -93,7 +94,7 @@ public class ProcessStripeEventConcurrencyTests : IAsyncLifetime
 
     private static Task<ProcessStripeEventResult> Process(IPaymentStore store, string payload)
     {
-        ProcessStripeEvent processStripeEvent = new(store, new SqlTransientErrorDetector(), TimeProvider.System, NullLogger<ProcessStripeEvent>.Instance);
+        ProcessStripeEvent processStripeEvent = new(store, new SqlTransientErrorDetector(), new NoFaultInjector(), TimeProvider.System, NullLogger<ProcessStripeEvent>.Instance);
         return processStripeEvent.ExecuteAsync(payload, CancellationToken.None);
     }
 

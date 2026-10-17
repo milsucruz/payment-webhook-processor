@@ -41,6 +41,8 @@ It throws `InvalidStripeEventException` when:
 
 Every other field is ignored, so new fields that Stripe adds don't break the parser. `api_version` is not checked: Stripe sends events in the version pinned to the account, and a check would turn the next account upgrade into dead-lettered events.
 
+The one optional field is `data.object.metadata.demo_fault` (task 3.3), copied as a raw string into `PaymentEvent.DemoFault`. A missing or null `metadata`, a missing key or a value that is not a string gives `null`, never an exception: metadata is free text set by whoever creates the payment, and a demo flag must not turn a real event into a permanent error. The parser doesn't check the value; `DemoFaultInjector` interprets it (see `docs/code/DemoFaultInjector.md`). For `charge.refunded` it is the charge's own metadata, so a refund carries the fault only if the charge has the key; that was not checked against Stripe, and the demos of task 3.3 use `payment_intent` events. `DemoFault` is the last positional parameter of `PaymentEvent`, with `null` as default, so the existing literal events in the tests stay unchanged.
+
 All of these are permanent errors (section 4): a redelivery carries the same body, so retrying can't help. The exception message is the dead-letter reason; task 2.4 decides how the use case turns it into a result.
 
 ### Why an exception and not a result

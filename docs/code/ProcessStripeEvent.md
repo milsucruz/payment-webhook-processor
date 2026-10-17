@@ -15,12 +15,14 @@ The payload is the message body, the original JSON that the API published. The u
 | Step | Result | Writes | Log |
 | --- | --- | --- | --- |
 | 1. Parse with `StripeEventParser` | `InvalidEvent`, reason = exception message | Nothing, no transaction | Warning |
-| 2. Open the transaction and read the payment | | | |
+| 2. Call `IFaultInjector`, open the transaction and read the payment | | | |
 | 3. Decide: `Payment.Apply`, or "applied" for an unknown payment | `Conflict`, reason names event, payment and state | Nothing (rollback) | Warning |
 | 4. Insert the inbox row with the outcome | `Duplicate` if the event ID is already there | Nothing (rollback) | Information |
 | 5. Add the new payment, if unknown, and the history row; commit | `Applied`, `IgnoredOutOfOrder` or `Redundant` | Inbox, payment, history | Information |
 
 Steps 2 to 5 are one attempt (`ProcessOnceAsync`). A concurrency conflict in step 4 or 5 rolls the attempt back and starts again at step 2; see "Concurrency conflicts" below. A transient error in any step from 2 to 5 does the same after a wait; see "Transient errors".
+
+Each attempt gets a number, from 1 within the delivery, which the use case passes to `IFaultInjector.InjectAsync` before reading the clock and opening the transaction (task 3.3), so a `slow` fault neither holds a transaction open nor shifts `processedAt`. In the worker that is `NoFaultInjector` unless `FaultInjection:Enabled` is on; then `DemoFaultInjector` throws or waits according to the payment's `demo_fault` metadata, and the exception goes through the same transient retry or reaches the worker like any other (see `docs/code/DemoFaultInjector.md`). The use case doesn't read the metadata itself and has no demo-specific branch.
 
 The worker maps the result: `Applied`, `IgnoredOutOfOrder`, `Redundant` and `Duplicate` complete the message. `InvalidEvent` and `Conflict` are permanent errors that go to the dead-letter on the first delivery, with `Reason` as the description (task 3.2, see `docs/code/PaymentEventsWorker.md`). `ConcurrencyConflict` and `TransientFailure` are abandoned for a later delivery.
 

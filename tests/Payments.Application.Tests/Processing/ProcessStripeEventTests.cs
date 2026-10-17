@@ -15,6 +15,7 @@ public class ProcessStripeEventTests
     private readonly InMemoryPaymentStore store = new();
     private readonly CollectingLogger<ProcessStripeEvent> logger = new();
     private readonly TestTransientErrorDetector transientErrorDetector = new();
+    private readonly TestFaultInjector faultInjector = new();
     private readonly DelayTrackingTimeProvider timeProvider = new(processedAt);
 
     [Fact]
@@ -287,6 +288,71 @@ public class ProcessStripeEventTests
         Assert.Equal(1, this.store.Commits);
     }
 
+    [Fact]
+    public async Task Fault_injector_runs_before_each_attempt_with_the_attempt_number()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        PaymentEvent paymentEvent = StripeEventParser.Parse(payload);
+        this.faultInjector.Exceptions.Enqueue(new TransientTestException());
+        this.faultInjector.Exceptions.Enqueue(new TransientTestException());
+
+        ProcessStripeEventResult result = await this.ProcessThroughDelays(payload, TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(1));
+
+        Assert.Equal(new ProcessStripeEventResult(ProcessStripeEventOutcome.Applied), result);
+        Assert.Equal([(paymentEvent.EventId, 1), (paymentEvent.EventId, 2), (paymentEvent.EventId, 3)], this.faultInjector.Calls);
+        Assert.Equal(1, this.store.TransactionsStarted);
+        Assert.Equal(1, this.store.Commits);
+        Assert.Single(this.store.InboxEvents);
+    }
+
+    [Fact]
+    public async Task Time_spent_in_the_fault_injector_is_not_hidden_in_the_recorded_times()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        this.faultInjector.OnInject = () => this.timeProvider.Advance(TimeSpan.FromSeconds(10));
+
+        await this.Process(payload);
+
+        DateTimeOffset expectedAt = processedAt.AddSeconds(10);
+        Assert.Equal(expectedAt, Assert.Single(this.store.InboxEvents).ReceivedAt);
+        Assert.Equal(expectedAt, Assert.Single(this.store.Payments.Values).UpdatedAt);
+        Assert.Equal(expectedAt, Assert.Single(this.store.History).OccurredAt);
+    }
+
+    [Fact]
+    public async Task Fault_injector_exception_that_is_not_transient_propagates_and_writes_nothing()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        this.faultInjector.Exceptions.Enqueue(new InvalidOperationException("poison"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => this.Process(payload));
+
+        Assert.Equal(0, this.store.TransactionsStarted);
+        Assert.Equal(0, this.store.Commits);
+        Assert.Empty(this.store.Payments);
+        Assert.Empty(this.store.InboxEvents);
+        Assert.Empty(this.store.History);
+    }
+
+    [Fact]
+    public async Task Concurrency_retry_counts_as_a_new_attempt_for_the_fault_injector()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        this.store.ConcurrencyConflictsToReport = 1;
+
+        await this.Process(payload);
+
+        Assert.Equal([1, 2], this.faultInjector.Calls.Select(call => call.Attempt));
+    }
+
+    [Fact]
+    public async Task Invalid_event_never_reaches_the_fault_injector()
+    {
+        await this.Process("not json");
+
+        Assert.Empty(this.faultInjector.Calls);
+    }
+
     [Theory]
     [InlineData("not json", "not valid JSON")]
     [InlineData("""{"id":"evt_x","type":"customer.created","created":1,"data":{"object":{}}}""", "customer.created")]
@@ -322,7 +388,7 @@ public class ProcessStripeEventTests
 
     private Task<ProcessStripeEventResult> Process(string payload, CancellationToken cancellationToken = default)
     {
-        ProcessStripeEvent processStripeEvent = new(this.store, this.transientErrorDetector, this.timeProvider, this.logger);
+        ProcessStripeEvent processStripeEvent = new(this.store, this.transientErrorDetector, this.faultInjector, this.timeProvider, this.logger);
         return processStripeEvent.ExecuteAsync(payload, cancellationToken);
     }
 
