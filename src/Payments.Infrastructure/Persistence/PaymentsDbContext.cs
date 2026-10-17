@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Payments.Application.Processing;
 using Payments.Domain;
 
 namespace Payments.Infrastructure.Persistence;

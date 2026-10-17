@@ -33,6 +33,7 @@ The problem is real: Stripe resends events when it doesn't get a timely response
 | Dead-letter (DLQ) | Service Bus subqueue for messages that exhausted their attempts |
 | Requested state | The state an event leads the payment to, per the table in section 6 |
 | Payment event | The parts of an event that matter to a payment: the payment, its requested state and its amounts |
+| Duplicate | The same event (same `evt_...`) delivered again; it is already in the inbox, so nothing is written. Not the same as redundant, which is a different event that requests the state the payment is already in |
 | Level | Rank of a state; an event is applied only if it raises the level of the payment, with the exceptions listed in section 6 |
 | Final state | Canceled or refunded: accepts no transition |
 | Outcome | What processing an event did to the payment: applied, ignored as out of order, redundant (the payment is already in the requested state) or conflict |
@@ -121,8 +122,8 @@ An event goes through ten steps between Stripe and the screen, and each step has
 3. The API publishes to the `payment-events` queue a message whose `MessageId` is the event ID (`evt_...`) and whose body is the original JSON.
 4. The API responds `200`. The synchronous work ends here.
 5. The worker receives the message in peek-lock mode: it becomes invisible to other consumers but has not been removed yet.
-6. The worker opens a transaction and inserts the event into the inbox table. The primary key is the event ID.
-7. In the same transaction, the worker loads the payment, looks up the transition table, applies or ignores the change, and writes the history.
+6. The worker opens a transaction, loads the payment and looks up the transition table to decide the outcome. An impossible conflict ends here: the transaction is rolled back and nothing is written.
+7. In the same transaction, the worker inserts the event into the inbox table with that outcome, then applies or ignores the change and writes the history. The primary key of the inbox is the event ID, so a duplicate fails this insert. The inbox comes after the read because its `Outcome` column needs the decision.
 8. The worker commits the transaction and only then completes the message, which leaves the queue.
 9. The worker publishes the notice to the `payment-notifications` queue.
 10. The API consumes the notice and sends `PaymentUpdated` to the clients connected to the hub.
@@ -482,7 +483,7 @@ The solution follows a lean Clean Architecture: the domain knows nothing about A
 | Project | Contents |
 | --- | --- |
 | `src/Payments.Domain` | `Payment`, `PaymentStatus`, transition table and transition result; no dependencies |
-| `src/Payments.Application` | `ReceiveStripeEvent` and `ProcessStripeEvent` use cases, and the signature verifier, event publisher, repository, inbox and notification ports |
+| `src/Payments.Application` | `ReceiveStripeEvent` and `ProcessStripeEvent` use cases, and the signature verifier, event publisher, payment store (inbox, payments and history in one transaction) and notification ports |
 | `src/Payments.Infrastructure` | EF Core, Service Bus, Stripe signature validation and OpenTelemetry configuration |
 | `src/Payments.Api` | Controllers, hub, notification consumer and dashboard files |
 | `src/Payments.Worker` | `BackgroundService` with the `ServiceBusProcessor` |

@@ -1,6 +1,6 @@
 using Payments.Domain;
 
-namespace Payments.Infrastructure.Persistence;
+namespace Payments.Application.Processing;
 
 public sealed class PaymentHistoryEntry
 {

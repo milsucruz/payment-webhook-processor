@@ -64,7 +64,7 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 - Controllers padrão, sem Minimal API. Sem MediatR e sem biblioteca paga ou de licença comercial.
 - Camadas (seção 11 da arquitetura):
   - Controller e worker são adaptadores: traduzem HTTP ou mensagem em chamada de caso de uso, e o resultado em código HTTP ou em conclusão da mensagem. Não têm `try`/`catch`, não leem o conteúdo do evento e não referenciam `Payments.Infrastructure`, que só aparece em `Program.cs` para registrar as implementações.
-  - Caso de uso é uma classe concreta em Application, sem interface, com um único método público `ExecuteAsync`. Desfechos esperados, inclusive falha de infraestrutura que ele sabe tratar, voltam como um enum de resultado, não como exceção. O caso de uso registra o log desses desfechos.
+  - Caso de uso é uma classe concreta em Application, sem interface, com um único método público `ExecuteAsync`. Desfechos esperados, inclusive falha de infraestrutura que ele sabe tratar, voltam como um enum de resultado, não como exceção. Quando o chamador precisa do motivo (ex.: o dead-letter), o retorno é um record com o enum e o motivo. O caso de uso registra o log desses desfechos.
   - Toda dependência externa de um caso de uso é um port (interface) declarado em Application e implementado em Infrastructure.
 - Entidades (seção 5 da arquitetura):
   - Propriedades `public get; private set;` e um construtor que recebe todos os campos obrigatórios; o EF Core usa esse construtor ao ler do banco.
