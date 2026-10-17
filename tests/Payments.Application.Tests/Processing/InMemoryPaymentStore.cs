@@ -19,6 +19,8 @@ public sealed class InMemoryPaymentStore : IPaymentStore
 
     public int Commits { get; private set; }
 
+    public int ConcurrencyConflictsToReport { get; set; }
+
     public Task<IAsyncDisposable> BeginTransactionAsync(CancellationToken cancellationToken)
     {
         this.TransactionsStarted++;
@@ -30,15 +32,15 @@ public sealed class InMemoryPaymentStore : IPaymentStore
         return Task.FromResult(this.Payments.GetValueOrDefault(paymentIntentId));
     }
 
-    public Task<bool> TryAddInboxEventAsync(InboxEvent inboxEvent, CancellationToken cancellationToken)
+    public Task<PaymentStoreWriteResult> AddInboxEventAsync(InboxEvent inboxEvent, CancellationToken cancellationToken)
     {
         if (this.InboxEvents.Any(existing => existing.EventId == inboxEvent.EventId))
         {
-            return Task.FromResult(false);
+            return Task.FromResult(PaymentStoreWriteResult.DuplicateEvent);
         }
 
         this.pendingInboxEvents.Add(inboxEvent);
-        return Task.FromResult(true);
+        return Task.FromResult(PaymentStoreWriteResult.Saved);
     }
 
     public void AddPayment(Payment payment)
@@ -51,8 +53,14 @@ public sealed class InMemoryPaymentStore : IPaymentStore
         this.pendingHistory.Add(entry);
     }
 
-    public Task CommitAsync(CancellationToken cancellationToken)
+    public Task<PaymentStoreWriteResult> CommitAsync(CancellationToken cancellationToken)
     {
+        if (this.ConcurrencyConflictsToReport > 0)
+        {
+            this.ConcurrencyConflictsToReport--;
+            return Task.FromResult(PaymentStoreWriteResult.ConcurrencyConflict);
+        }
+
         this.InboxEvents.AddRange(this.pendingInboxEvents);
         foreach (Payment payment in this.pendingPayments)
         {
@@ -62,7 +70,7 @@ public sealed class InMemoryPaymentStore : IPaymentStore
         this.History.AddRange(this.pendingHistory);
         this.Commits++;
         this.Discard();
-        return Task.CompletedTask;
+        return Task.FromResult(PaymentStoreWriteResult.Saved);
     }
 
     private void Discard()

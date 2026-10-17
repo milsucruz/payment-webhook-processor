@@ -38,6 +38,7 @@ The problem is real: Stripe resends events when it doesn't get a timely response
 | Final state | Canceled or refunded: accepts no transition |
 | Outcome | What processing an event did to the payment: applied, ignored as out of order, redundant (the payment is already in the requested state) or conflict |
 | Impossible conflict | An event that contradicts a fact already recorded, such as "paid" for a canceled payment; it goes to the dead-letter |
+| Concurrency conflict | Two events for the same payment were processed at the same time and the other one wrote first; the losing one is processed again from the read. Not the same as an impossible conflict, which never succeeds on a retry |
 
 ## 2. Requirements
 
@@ -243,9 +244,9 @@ Additional rules:
 
 ### Concurrency between replicas
 
-Two events for the same payment may be processed at the same time by different replicas. When the payment already exists, the `RowVersion` column makes the second write fail. When it doesn't exist yet, both replicas try to insert it and the second insert violates the primary key of `Payments`. The worker treats both cases as a concurrency conflict: it rolls back and retries processing that event from the read, where it now finds the payment.
+Two events for the same payment may be processed at the same time by different replicas. When the payment already exists, the `RowVersion` column makes the second write fail. When it doesn't exist yet, both replicas try to insert it and the second insert violates the primary key of `Payments`. The worker treats both cases as a concurrency conflict: the processing use case rolls back and retries that event from the read, in a new transaction, where it now finds the payment. It makes up to 3 attempts with no wait, because the conflict only shows up after the other write committed, so the next read already sees it. If all 3 lose, the worker abandons the message and Service Bus delivers it again.
 
-A primary key violation on `InboxEvents` means something else: the event was already processed, so it is a duplicate and the message is completed. The worker tells the two apart by the table of the violated key. Service Bus sessions would avoid the conflict with per-payment ordering, but they require the Standard tier.
+A primary key violation on `InboxEvents` means something else: the event was already processed, so it is a duplicate and the message is completed. The worker tells the two apart by the name of the violated key (`PK_InboxEvents` or `PK_Payments`). Service Bus sessions would avoid the conflict with per-payment ordering, but they require the Standard tier.
 
 ### Retry and dead-letter
 

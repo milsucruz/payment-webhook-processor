@@ -20,7 +20,30 @@ The payload is the message body, the original JSON that the API published. The u
 | 4. Insert the inbox row with the outcome | `Duplicate` if the event ID is already there | Nothing (rollback) | Information |
 | 5. Add the new payment, if unknown, and the history row; commit | `Applied`, `IgnoredOutOfOrder` or `Redundant` | Inbox, payment, history | Information |
 
-The worker maps the result: the four outcomes other than `InvalidEvent` and `Conflict` complete the message. Those two are permanent errors that go to the dead-letter with `Reason` (task 3.2); until then the worker abandons them.
+Steps 2 to 5 are one attempt (`ProcessOnceAsync`). A concurrency conflict in step 4 or 5 rolls the attempt back and starts again at step 2; see "Concurrency conflicts" below.
+
+The worker maps the result: `Applied`, `IgnoredOutOfOrder`, `Redundant` and `Duplicate` complete the message. `InvalidEvent` and `Conflict` are permanent errors that go to the dead-letter with `Reason` (task 3.2); until then the worker abandons them. `ConcurrencyConflict` is abandoned for a later delivery.
+
+## Concurrency conflicts
+
+Two replicas (or two of the 4 concurrent calls of one worker) can process events for the same payment at the same time. Both read the same state, and the second write fails: on `RowVersion` when the payment exists, on the `Payments` primary key when both try to create it (section 6). The store reports both as `PaymentStoreWriteResult.ConcurrencyConflict` (see `docs/code/PaymentStore.md`).
+
+`ExecuteAsync` parses once and then calls `ProcessOnceAsync` up to `MaxAttempts` (3) times:
+
+| Attempt result | What happens | Log |
+| --- | --- | --- |
+| Anything but `ConcurrencyConflict` | Returned as is | As in the table above |
+| `ConcurrencyConflict`, attempts left | The `await using` disposes the transaction (rollback), and the next attempt opens a new one and reads again | Information, with payment, event and attempt number |
+| `ConcurrencyConflict` on the last attempt | Returns `ConcurrencyConflict` with a reason naming event and payment | Warning |
+
+Choices behind it:
+
+- **In the use case, not the worker.** Section 6 says "the worker" retries, meaning the process. The worker class is an adapter with no `try`/`catch` (layering rule in `CLAUDE.md`), and a retry from the read means running the decision again, which is the use case's job.
+- **No wait between attempts.** The conflict only happens after the other write committed (`PaymentStore.md`), so the next read already sees the new state. The 1 + 3 retries with 200 ms, 1 s and 5 s in section 6 are for transient errors (task 3.1), a different case.
+- **3 attempts.** One retry is enough for two events racing. The third covers a third event committing between the retry's read and write. Losing three in a row needs a burst on one payment; then the message goes back to the queue instead of looping.
+- **A result, not an exception.** The store already reported a duplicate as a value. A concurrency conflict is just as expected, so it gets a value in the same enum (rule in `CLAUDE.md`).
+- **`processedAt` per attempt.** Each attempt reads the clock again, so `UpdatedAt`, `ReceivedAt` and `OccurredAt` are the time of the attempt that committed.
+- **A separate outcome name.** `Conflict` already means impossible conflict (dead-letter). `ConcurrencyConflict` never goes to the dead-letter on its own. Both terms are in the glossary (section 1).
 
 ## Why the inbox comes after the read
 
@@ -31,7 +54,7 @@ Two consequences:
 - **An impossible conflict returns before the inbox.** That is safe for duplicates: an event that reached the inbox was applied, ignored or redundant, never a conflict, and a conflict can't appear later for the same event (canceled and the "paid" family can't both be applied to one payment). So no duplicate is hidden behind a `Conflict`.
 - **A duplicate is decided against the current state, and the decision is thrown away.** The inbox insert fails, the transaction rolls back, and nothing the decision changed in memory reaches the database.
 
-`PaymentStore.md` explains how the separate inbox `SaveChanges` keeps a duplicate apart from a concurrency conflict without looking at the violated table, which is task 2.6.
+`PaymentStore.md` explains how the store tells a duplicate apart from a concurrency conflict by the name of the violated key.
 
 ## `Payment.Apply`
 
@@ -70,7 +93,6 @@ Ignored rows carry the outcome as text: `out of order` or `redundant` (constants
 
 | Missing | Where |
 | --- | --- |
-| Retry after a `RowVersion` failure or a `Payments` primary key violation | Task 2.6. Both surface as exceptions from the store and are not caught |
 | Retry of transient database errors | Task 3.1. Exceptions propagate to the worker |
 | `TraceId` | M5 (5.6). Always `null` until there is an `Activity` |
 | Duplicate metric (section 6) | M5 (5.7) |
@@ -80,3 +102,12 @@ Ignored rows carry the outcome as text: `out of order` or `redundant` (constants
 `tests/Payments.Application.Tests/Processing/ProcessStripeEventTests.cs` runs the real use case against `InMemoryPaymentStore`, a test double whose pending writes become visible only on `CommitAsync` and are discarded when the transaction is disposed. It mimics the inbox primary key by rejecting a repeated event ID. Events come from the real fixtures in `tests/fixtures`; expected values are read through `StripeEventParser` instead of copied.
 
 The task's done criterion maps to `Duplicate_event_writes_nothing_and_returns_duplicate`, `Event_for_an_unknown_payment_creates_it_in_the_requested_state` and `Partial_refund_of_a_paid_payment_records_the_refunded_amount`. A mutation that ignores the inbox result fails the duplicate test. `tests/Payments.Domain.Tests/PaymentTests.cs` covers `Apply`.
+
+For the retry, `InMemoryPaymentStore.ConcurrencyConflictsToReport` makes `CommitAsync` report a conflict that many times. `Concurrency_conflict_is_retried_from_the_read_in_a_new_transaction` checks two transactions and one commit, and `Concurrency_conflict_on_every_attempt_writes_nothing_and_returns_the_reason` checks the limit.
+
+The double can't produce a real race, so task 2.6's done criterion is checked by `tests/Payments.IntegrationTests/Processing/ProcessStripeEventConcurrencyTests.cs`, against SQL Server in Testcontainers:
+
+- Two `ProcessStripeEvent` instances run at the same time, each with its own `DbContext`, on `payment_intent.requires_action` and `payment_intent.succeeded` for the same `pi_`. The events are inline JSON, because each fixture has a different `pi_`.
+- `BarrierPaymentStore` wraps `PaymentStore` and holds each run after its first read until both have read, so both decide from the same state and the race happens every time, not by luck. It also counts the `ConcurrencyConflict` results, and the test asserts exactly one, which proves the race really happened.
+- Two cases: existing payment in `created` (`RowVersion`) and unknown payment (`PK_Payments`). Both end `paid` with `LastEventId` from `succeeded`, two inbox rows and two history rows. Whichever wins, the other is applied or ignored as out of order on its retry.
+- With `MaxAttempts = 1` (no retry), both cases fail (mutation check in the task 2.6 session).

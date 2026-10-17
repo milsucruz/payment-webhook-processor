@@ -10,23 +10,34 @@ Section 11 used to list a repository port and an inbox port. The transaction has
 
 ## The transaction
 
-`BeginTransactionAsync` opens a database transaction and returns it as `IAsyncDisposable`. Disposing it without `CommitAsync` rolls back, which is how every early return of the use case (conflict, duplicate, exception) leaves nothing behind. `CommitAsync` saves the pending changes and commits.
+`BeginTransactionAsync` opens a database transaction and returns it as `IAsyncDisposable`. Disposing it without a successful `CommitAsync` rolls back, which is how every early return of the use case (conflict, duplicate, concurrency conflict, exception) leaves nothing behind. `CommitAsync` saves the pending changes and commits only if the save worked.
+
+`BeginTransactionAsync` first calls `ChangeTracker.Clear()`. The use case opens one transaction per attempt on the same store (task 2.6), and `FindAsync` returns an entity the context already tracks without going to the database. Without the clear, a retry would get back the `Payment` that the failed attempt loaded and changed with `Apply`, not the row the other writer just committed, and would lose again. The other way to get a clean context, a new DI scope per attempt, would need the worker to catch and loop, which the layering rule forbids.
 
 The isolation is the default read committed, with `READ_COMMITTED_SNAPSHOT` on both locally and in Azure SQL (`docs/code/PaymentsDbContext.md`). The read of the payment doesn't block, and a concurrent change shows up on the write.
 
-## Two `SaveChanges`, and why the duplicate needs no table check
+## Two `SaveChanges`, one translation
 
-| Call | What is pending | What can fail |
-| --- | --- | --- |
-| `TryAddInboxEventAsync` | The inbox row, plus the `UPDATE` of an existing payment that `Apply` changed in memory | Inbox primary key (duplicate), `RowVersion` (`DbUpdateConcurrencyException`) |
-| `CommitAsync` | The new payment, if unknown, and the history row | `Payments` primary key (concurrent creation) |
+| Call | What is pending | What can fail | Result |
+| --- | --- | --- | --- |
+| `AddInboxEventAsync` | The inbox row, plus the `UPDATE` of an existing payment that `Apply` changed in memory | Inbox primary key; `RowVersion` | `DuplicateEvent`; `ConcurrencyConflict` |
+| `CommitAsync` | The new payment, if unknown, and the history row | `Payments` primary key (concurrent creation) | `ConcurrencyConflict` |
 
-A primary key violation (SQL error 2627) in the first call can only be the inbox, because a new payment hasn't been added yet, and the update of an existing one can't violate a key. So the store catches only that error, and only there, and returns `false`. Everything else propagates:
+Both calls go through the private `SaveAsync`, which turns the expected failures into a `PaymentStoreWriteResult` and lets everything else propagate (transient errors are task 3.1):
 
-- `DbUpdateConcurrencyException` is a different exception type, not a `SqlException`, so the `when` filter lets it through.
-- A `Payments` key violation only happens in `CommitAsync`, which catches nothing.
+| Exception | Result |
+| --- | --- |
+| `DbUpdateConcurrencyException` (the `UPDATE ... WHERE RowVersion = @old` touched no row) | `ConcurrencyConflict` |
+| SQL error 2627 on `PK_InboxEvents` | `DuplicateEvent` |
+| SQL error 2627 on `PK_Payments` | `ConcurrencyConflict` |
 
-Task 2.6 turns those two into a retry. Telling the tables apart by name is not needed as long as this order holds.
+The order of the calls already decides which key a 2627 can be (a new payment is only added after the inbox is saved), so checking the name is redundant today. It is there because section 6 and the task ask for the table to tell them apart, and because it keeps working if the order changes. The name is not hard-coded: it comes from the EF model (`FindPrimaryKey().GetName()`), the same place the migration took it from, and is looked for between quotes in the `SqlException` message ("Violation of PRIMARY KEY constraint 'PK_Payments'..."). The message text can be translated with the login's language, but the constraint name inside it isn't.
+
+`DbUpdateConcurrencyException` derives from `DbUpdateException`, so its `catch` comes first. The two `when` filters only match a 2627 on a known key; any other `DbUpdateException` propagates.
+
+### Why the conflict only shows up after the other commit
+
+With `READ_COMMITTED_SNAPSHOT`, both runs read the same version of the payment without blocking. The writes do block: the loser's `UPDATE` (or `INSERT` of the same key) waits for the winner's lock, and fails only once the winner commits. That is why the use case can retry right away, with no wait: the next read already sees the committed row.
 
 The payment `UPDATE` rides along in the first `SaveChanges` because `Apply` decides and changes in one call: the outcome that goes into the inbox row comes from it. The alternative (decide with `PaymentTransitions.Decide`, insert the inbox alone, then `Apply`) would compute the decision twice. Inside one transaction the order of the writes doesn't change the result.
 
@@ -36,6 +47,6 @@ When the inbox insert fails, EF rolls the batch back to a savepoint, and the `Db
 
 The store holds the open transaction in a field, so it lives in the same scope as its `DbContext`: one instance per message. The worker registers it as scoped in `Program.cs`.
 
-## Not tested against SQL Server yet
+## Tests against SQL Server
 
-The unit tests use a test double (`InMemoryPaymentStore`). Task 2.5 ran this class against the local SQL Server through `stripe trigger`, including a real duplicate (`stripe events resend`) and a real `PK_Payments` violation (see `docs/code/PaymentEventsWorker.md`). The automated integration test arrives with the rest of the integration suite (see `docs/pending.md`).
+The unit tests use a test double (`InMemoryPaymentStore`). `tests/Payments.IntegrationTests/Processing/ProcessStripeEventConcurrencyTests.cs` (task 2.6) runs this class against a real SQL Server in Testcontainers and covers both `ConcurrencyConflict` paths: `RowVersion` (existing payment) and `PK_Payments` (unknown payment). The `DuplicateEvent` path against SQL Server is still only checked by hand (task 2.5, `stripe events resend`); its automated test is in `docs/pending.md`.

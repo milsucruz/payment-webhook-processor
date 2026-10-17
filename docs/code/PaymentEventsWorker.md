@@ -15,6 +15,7 @@ The adapter between the `payment-events` queue and `ProcessStripeEvent` (see `do
 | `Applied`, `IgnoredOutOfOrder`, `Redundant` | Complete | The transaction is committed, so the message can leave the queue (step 8 of section 4) |
 | `Duplicate` | Complete | The event was already processed; nothing was written (section 6) |
 | `InvalidEvent`, `Conflict` | Abandon | Provisional: see below |
+| `ConcurrencyConflict` | Abandon | The use case already retried from the read `ProcessStripeEvent.MaxAttempts` times (task 2.6). Losing that many races in a row is unlikely but not a broken assumption, so the message goes back for a later delivery. Unlike the row above, task 3.2 keeps this one as an abandon |
 
 `CompleteMessageAsync` only runs after `ExecuteAsync` returns, and `ExecuteAsync` only returns those outcomes after the commit. If the worker dies between the two, the message comes back and the inbox turns it into a `Duplicate`.
 
@@ -24,7 +25,7 @@ Section 6 sends permanent errors straight to the dead-letter, with reason and de
 
 ## No `try`/`catch`: exceptions go back to the queue
 
-The handler doesn't catch anything (layering rule in `CLAUDE.md`). When the use case throws (database down, a concurrency conflict until task 2.6, cancellation on shutdown), the exception leaves the handler and the SDK:
+The handler doesn't catch anything (layering rule in `CLAUDE.md`). When the use case throws (database down, cancellation on shutdown), the exception leaves the handler and the SDK:
 
 1. calls `ProcessErrorAsync`, which logs it as an error with the queue name and the error source;
 2. abandons the message, because it isn't settled and the receive mode is peek-lock.
@@ -80,6 +81,6 @@ There is no unit test of the settlement mapping: building fake `ProcessMessageEv
 - `succeeded` created the payment as paid.
 - `created` read no payment too, tried to insert it, and failed with a `PK_Payments` violation in `CommitAsync`. That is the concurrent-creation case of task 2.6. The exception went back to the queue, and on redelivery `created` found the paid payment and was recorded as out of order.
 
-The final state is correct: one payment, two inbox rows, two history rows. The history IDs are 1 and 3, because the rolled-back insert used identity 2. Until task 2.6, this race logs a full stack trace as an error; 2.6 turns it into a retry inside the use case.
+The final state is correct: one payment, two inbox rows, two history rows. The history IDs are 1 and 3, because the rolled-back insert used identity 2. At that point this race logged a full stack trace as an error. Since task 2.6 the use case retries it from the read inside the same delivery (see `docs/code/ProcessStripeEvent.md`).
 
 `stripe events resend` of the `succeeded` event was logged as `already processed`, and the row counts didn't change. A throwaway script peeked the queue and its dead-letter after each step and found both empty.

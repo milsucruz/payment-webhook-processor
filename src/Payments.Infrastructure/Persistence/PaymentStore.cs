@@ -21,6 +21,7 @@ public sealed class PaymentStore : IPaymentStore
 
     public async Task<IAsyncDisposable> BeginTransactionAsync(CancellationToken cancellationToken)
     {
+        this.dbContext.ChangeTracker.Clear();
         this.transaction = await this.dbContext.Database.BeginTransactionAsync(cancellationToken);
         return this.transaction;
     }
@@ -30,18 +31,10 @@ public sealed class PaymentStore : IPaymentStore
         return await this.dbContext.Payments.FindAsync([paymentIntentId], cancellationToken);
     }
 
-    public async Task<bool> TryAddInboxEventAsync(InboxEvent inboxEvent, CancellationToken cancellationToken)
+    public async Task<PaymentStoreWriteResult> AddInboxEventAsync(InboxEvent inboxEvent, CancellationToken cancellationToken)
     {
         this.dbContext.InboxEvents.Add(inboxEvent);
-        try
-        {
-            await this.dbContext.SaveChangesAsync(cancellationToken);
-            return true;
-        }
-        catch (DbUpdateException exception) when (exception.InnerException is SqlException { Number: PrimaryKeyViolation })
-        {
-            return false;
-        }
+        return await this.SaveAsync(cancellationToken);
     }
 
     public void AddPayment(Payment payment)
@@ -54,14 +47,51 @@ public sealed class PaymentStore : IPaymentStore
         this.dbContext.PaymentHistory.Add(entry);
     }
 
-    public async Task CommitAsync(CancellationToken cancellationToken)
+    public async Task<PaymentStoreWriteResult> CommitAsync(CancellationToken cancellationToken)
     {
         if (this.transaction is null)
         {
             throw new InvalidOperationException("CommitAsync was called without a transaction.");
         }
 
-        await this.dbContext.SaveChangesAsync(cancellationToken);
-        await this.transaction.CommitAsync(cancellationToken);
+        PaymentStoreWriteResult result = await this.SaveAsync(cancellationToken);
+        if (result == PaymentStoreWriteResult.Saved)
+        {
+            await this.transaction.CommitAsync(cancellationToken);
+        }
+
+        return result;
+    }
+
+    private async Task<PaymentStoreWriteResult> SaveAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await this.dbContext.SaveChangesAsync(cancellationToken);
+            return PaymentStoreWriteResult.Saved;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return PaymentStoreWriteResult.ConcurrencyConflict;
+        }
+        catch (DbUpdateException exception) when (this.ViolatesPrimaryKeyOf<InboxEvent>(exception))
+        {
+            return PaymentStoreWriteResult.DuplicateEvent;
+        }
+        catch (DbUpdateException exception) when (this.ViolatesPrimaryKeyOf<Payment>(exception))
+        {
+            return PaymentStoreWriteResult.ConcurrencyConflict;
+        }
+    }
+
+    private bool ViolatesPrimaryKeyOf<TEntity>(DbUpdateException exception)
+    {
+        if (exception.InnerException is not SqlException { Number: PrimaryKeyViolation } sqlException)
+        {
+            return false;
+        }
+
+        string? keyName = this.dbContext.Model.FindEntityType(typeof(TEntity))?.FindPrimaryKey()?.GetName();
+        return keyName is not null && sqlException.Message.Contains($"'{keyName}'", StringComparison.Ordinal);
     }
 }

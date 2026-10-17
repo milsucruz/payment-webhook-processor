@@ -47,6 +47,7 @@ public sealed class PaymentEventsWorker : BackgroundService
                 break;
             case ProcessStripeEventOutcome.InvalidEvent:
             case ProcessStripeEventOutcome.Conflict:
+            case ProcessStripeEventOutcome.ConcurrencyConflict:
                 await args.AbandonMessageAsync(args.Message, cancellationToken: args.CancellationToken);
                 break;
             default:

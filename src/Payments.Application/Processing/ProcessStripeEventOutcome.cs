@@ -8,4 +8,5 @@ public enum ProcessStripeEventOutcome
     Duplicate,
     Conflict,
     InvalidEvent,
+    ConcurrencyConflict,
 }
