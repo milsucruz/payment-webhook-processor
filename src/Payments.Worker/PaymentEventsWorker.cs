@@ -6,8 +6,8 @@ namespace Payments.Worker;
 // Details: docs/code/PaymentEventsWorker.md
 public sealed class PaymentEventsWorker : BackgroundService
 {
-    public const string InvalidEventReason = "InvalidEvent";
-    public const string ImpossibleConflictReason = "ImpossibleConflict";
+    private const string InvalidEventReason = "InvalidEvent";
+    private const string ImpossibleConflictReason = "ImpossibleConflict";
 
     private readonly ServiceBusProcessor processor;
     private readonly IServiceScopeFactory scopeFactory;

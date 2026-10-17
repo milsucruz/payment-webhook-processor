@@ -50,7 +50,7 @@ public class PaymentEventsWorkerDeadLetterTests : IAsyncLifetime
         Assert.NotNull(deadLettered);
         Assert.Equal("evt_unreadable", deadLettered.MessageId);
         Assert.Equal("not json", deadLettered.Body.ToString());
-        Assert.Equal(PaymentEventsWorker.InvalidEventReason, deadLettered.DeadLetterReason);
+        Assert.Equal("InvalidEvent", deadLettered.DeadLetterReason);
         Assert.Equal("The event body is not valid JSON.", deadLettered.DeadLetterErrorDescription);
         Assert.Equal(1, deadLettered.DeliveryCount);
     }

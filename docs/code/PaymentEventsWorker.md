@@ -27,7 +27,7 @@ Section 6 sends permanent errors to the dead-letter on the first delivery, with 
 
 | Property | Value | Why |
 | --- | --- | --- |
-| `DeadLetterReason` | A fixed code per outcome: `InvalidEvent` or `ImpossibleConflict` (constants on the class) | A short, stable value that the dead-letter screen (task 3.4) can show and filter. It follows what Service Bus itself writes when it dead-letters a message: a code such as `MaxDeliveryCountExceeded` or `TTLExpiredException` in the reason, and the detail in the description |
+| `DeadLetterReason` | A fixed code per outcome: `InvalidEvent` or `ImpossibleConflict` (private constants on the class; the test asserts the literal, because the code is a contract that the dead-letter screen and operators rely on, and comparing against the constant would let a changed value pass) | A short, stable value that the dead-letter screen (task 3.4) can show and filter. It follows what Service Bus itself writes when it dead-letters a message: a code such as `MaxDeliveryCountExceeded` or `TTLExpiredException` in the reason, and the detail in the description |
 | `DeadLetterErrorDescription` | `result.Reason`, the use case's text: the parser message ("The event body is not valid JSON.") or the conflict ("Event evt_... requests Paid for payment pi_..., which is Canceled.") | The operator needs to know which field was wrong or which fact was contradicted. Only the use case knows that, since the worker never reads the event |
 
 Why these choices:
