@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <None Include="..\..\infra\servicebus-emulator\config.json" Link="servicebus-emulator-config.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\fixtures\*.json" LinkBase="fixtures" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

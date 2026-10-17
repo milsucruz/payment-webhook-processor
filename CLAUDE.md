@@ -93,7 +93,7 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 ## Comandos
 
 ```bash
-cp .env.example .env            # uma vez; preencha MSSQL_SA_PASSWORD e STRIPE_WEBHOOK_SECRET
+cp .env.example .env            # uma vez; preencha MSSQL_SA_PASSWORD, STRIPE_WEBHOOK_SECRET e ADMIN_API_KEY (qualquer valor aleatório longo)
 stripe listen --print-secret    # valor de STRIPE_WEBHOOK_SECRET; depois de mudar o .env, docker compose up -d api
 docker compose up -d            # SQL Server, emulador do Service Bus, migrator (aplica as migrations e sai), API e worker
 curl http://localhost:5300/health   # emulador pronto quando responde 200; antes disso o webhook responde 500
@@ -111,6 +111,8 @@ dotnet user-secrets set Stripe:SecretKey <sk_test_...> --project tools/Simulator
 dotnet run --project tools/Simulator -- pay                          # um pagamento por cartão de teste: aprova, recusa, pede autenticação
 dotnet run --project tools/Simulator -- refund <pi_...> [centavos]   # sem valor, reembolso total
 dotnet run --project tools/Simulator -- replay [seed]                # reenvia cada evento do inbox duas vezes, embaralhado; precisa do compose de pé
+curl http://localhost:8080/api/dead-letters                          # lista a dead-letter sem remover; público
+curl -X POST http://localhost:8080/api/dead-letters/<sequenceNumber>/reprocess -H "X-Admin-Key: <ADMIN_API_KEY do .env>"   # 204, 404 ou 401
 ```
 
 Atualize esta seção quando um comando mudar. Todos funcionam, exceto `pay` e `refund` do simulador, que ainda não rodaram contra o Stripe (sem chave de teste na tarefa 2.8; ver `docs/pending.md`).

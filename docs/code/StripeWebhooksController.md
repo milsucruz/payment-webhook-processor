@@ -10,6 +10,24 @@ The 256 KB body limit comes from architecture section 8 and is applied with `[Re
 
 The Service Bus Basic message cap is also 256 KB, but it counts the body **and** the message headers. A body close to the limit passes the API and then fails to publish with `MessageSizeExceeded`, which answers `500` like any other publish failure. Task 1.4 kept the 256 KB limit instead of lowering it: real `payment_intent` events are a few KB, and any lower limit would be a made-up number. Section 8 of the architecture says the same.
 
+## Rate limit
+
+Section 8 protects the endpoint from floods of unsigned requests with the ASP.NET Core rate limiter (task 3.4). The controller carries `[EnableRateLimiting("webhook")]`, and `Program.cs` defines the policy:
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| Algorithm | Fixed window | The simplest one; the goal is a ceiling, not smoothing |
+| Limit | 100 requests per 1 s (`RateLimiting:Webhook:PermitLimit` and `Window`) | Far above real traffic: a payment produces a handful of events, and Stripe's own test-mode API limit keeps even the `flood` mode of task 4.7 below it |
+| Partition | One, global | Behind the Container Apps ingress the remote address is the proxy's, so a per-IP limit would need forwarded headers first; with a single API replica a global limit is the same as a per-replica one |
+| Queue | 0 | A queued request still holds a connection; rejecting at once is what a flood needs |
+| Rejection | `429` | The framework default is `503`. Stripe resends on any non-2xx, so a real event rejected in a flood is delivered again later |
+
+The limit runs before the action, so a rejected request never reaches the signature check or the queue. Signed requests count too: in a flood, Stripe's events wait for the resend like everyone else's.
+
+The values are options, not constants (unlike the publish retry below), so that the test can set 2 requests per minute and get a deterministic `429`; with the real 100 per second a test would depend on how fast the machine sends. They are validated at startup (positive limit and window). The policy reads them from `IOptions` when the limiter is first created, so the settings from `WebApplicationFactory` apply.
+
+Measured in task 3.4 against compose: 300 concurrent unsigned requests from one `HttpClient` gave exactly 100 `400` and 200 `429`. Sequential `curl` processes on Windows reach only about 37 requests per second and never hit the limit.
+
 ## `ReceiveAsync`
 
 ### Why the action has no parameters
@@ -51,7 +69,12 @@ The `switch` names every value and ends with `throw new UnreachableException()`.
 
 Until task 1.5 the action did all of this itself: it parsed the `id` with `JsonDocument`, called the publisher inside a `try`/`catch`, and told the two kinds of `OperationCanceledException` apart. Task 1.6 moved that into the use case, after the layering rule in `CLAUDE.md`: a controller translates HTTP and nothing else. The controller no longer references `Payments.Infrastructure`, and the rules of ingestion are tested without HTTP.
 
-If Stripe closes the connection while the body is still being read, `ReadToEndAsync` throws `OperationCanceledException` out of the action. The rule keeps `try`/`catch` out of the controller, so this belongs to a pipeline-level handler; it is in `docs/pending.md` for task 3.4.
+If Stripe closes the connection while the body is still being read, the read throws out of the action. Task 3.4 measured what happens, with the API in compose and a raw socket that announced `Content-Length: 1000`, sent 20 bytes and closed:
+
+- **Production** (the cloud): Kestrel throws `BadHttpRequestException` ("Unexpected end of request content"), not `OperationCanceledException`, and logs it at `Debug` in `Microsoft.AspNetCore.Server.Kestrel.BadRequests`. Nothing is written at the configured levels.
+- **Development**: the developer exception page catches it, logs "The request was aborted by the client" at `Debug` and records status `499`.
+
+Neither is an error, so no pipeline-level handler was added, and the controller keeps no `try`/`catch`.
 
 The action was renamed from `Receive` to `ReceiveAsync` in task 1.2, after the naming rule in `CLAUDE.md`. The route comes from `[Route]`, so the `Async` suffix doesn't change the URL.
 
@@ -71,7 +94,7 @@ With the defaults, a queue that does not answer holds the request for minutes. W
 
 ### Tests
 
-`tests/Payments.Api.Tests` runs the real pipeline with `WebApplicationFactory`, with the real `ReceiveStripeEvent`, and replaces `IEventPublisher` with a fake: one that records the calls (linked from `Payments.Application.Tests`), and one that throws `ServiceBusException`. The signature is computed by `StripeSignatureHelper`, linked from `Payments.Infrastructure.Tests` so both projects sign the same way. The tests cover: valid signature (`200`, one publish with the same ID and body), failing publisher (`500`), invalid signature, a body without a valid `id` (missing, empty, blank, not a string, not an object, not JSON), and an ID over 128 characters (`400`, nothing published). A last test blocks the publish, cancels the request from the client, and checks that a warning is logged, not an error. `TestServer` turns the client's cancellation into `RequestAborted`, so this is the same path as Stripe closing the connection. Since task 1.6 that warning comes from the `ReceiveStripeEvent` log category; the test's assertions did not change.
+`tests/Payments.Api.Tests` runs the real pipeline with `WebApplicationFactory`, with the real `ReceiveStripeEvent`, and replaces `IEventPublisher` with a fake: one that records the calls (linked from `Payments.Application.Tests`), and one that throws `ServiceBusException`. The signature is computed by `StripeSignatureHelper`, linked from `Payments.Infrastructure.Tests` so both projects sign the same way. The tests cover: valid signature (`200`, one publish with the same ID and body), failing publisher (`500`), invalid signature, a body without a valid `id` (missing, empty, blank, not a string, not an object, not JSON), and an ID over 128 characters (`400`, nothing published). Since task 3.4 another test sets the limit to 2 per minute and checks that the third request gets `429` and publishes nothing, with an unsigned request counting toward the limit. A last test blocks the publish, cancels the request from the client, and checks that a warning is logged, not an error. `TestServer` turns the client's cancellation into `RequestAborted`, so this is the same path as Stripe closing the connection. Since task 1.6 that warning comes from the `ReceiveStripeEvent` log category; the test's assertions did not change.
 
 The same rules are also tested without HTTP in `tests/Payments.Application.Tests`. The API tests stay because they prove the status codes and the raw-body path through the real pipeline.
 

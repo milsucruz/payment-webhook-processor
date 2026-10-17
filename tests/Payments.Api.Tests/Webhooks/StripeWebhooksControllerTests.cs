@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
 using Microsoft.AspNetCore.Hosting;
@@ -111,13 +112,36 @@ public class StripeWebhooksControllerTests : IClassFixture<WebApplicationFactory
         Assert.Equal(LogLevel.Warning, level);
     }
 
-    private HttpClient CreateClient(IEventPublisher publisher, ILoggerProvider? loggerProvider = null) =>
+    [Fact]
+    public async Task Requests_over_the_rate_limit_return_429_and_publish_nothing()
+    {
+        RecordingEventPublisher publisher = new();
+        HttpClient client = this.CreateClient(publisher, rateLimit: 2);
+
+        HttpResponseMessage first = await client.SendAsync(SignedRequest(EventJson));
+        HttpResponseMessage unsigned = await client.SendAsync(UnsignedRequest(EventJson));
+        HttpResponseMessage overLimit = await client.SendAsync(SignedRequest(EventJson));
+
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, unsigned.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, overLimit.StatusCode);
+        Assert.Single(publisher.Published);
+    }
+
+    private HttpClient CreateClient(IEventPublisher publisher, ILoggerProvider? loggerProvider = null, int? rateLimit = null) =>
         this.factory
             .WithWebHostBuilder(builder =>
             {
                 builder.UseSetting("Stripe:WebhookSecret", Secret);
                 builder.UseSetting("ServiceBus:ConnectionString", "Endpoint=sb://localhost;SharedAccessKeyName=test;SharedAccessKey=test");
                 builder.UseSetting("ServiceBus:EventsQueueName", "payment-events");
+                builder.UseSetting("Admin:ApiKey", "test-admin-key");
+                if (rateLimit is not null)
+                {
+                    builder.UseSetting("RateLimiting:Webhook:PermitLimit", rateLimit.Value.ToString(CultureInfo.InvariantCulture));
+                    builder.UseSetting("RateLimiting:Webhook:Window", "00:01:00");
+                }
+
                 builder.ConfigureTestServices(services => services.AddSingleton(publisher));
                 if (loggerProvider is not null)
                 {
@@ -135,6 +159,12 @@ public class StripeWebhooksControllerTests : IClassFixture<WebApplicationFactory
         request.Headers.Add("Stripe-Signature", StripeSignatureHelper.Header(body, Secret, Now()));
         return request;
     }
+
+    private static HttpRequestMessage UnsignedRequest(string body) =>
+        new(HttpMethod.Post, "/webhooks/stripe")
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
 
     private static long Now() => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 }

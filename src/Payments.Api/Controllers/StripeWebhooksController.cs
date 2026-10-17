@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using Payments.Api.RateLimiting;
 using Payments.Application.Webhooks;
 
 namespace Payments.Api.Controllers;
@@ -7,6 +9,7 @@ namespace Payments.Api.Controllers;
 // Details: docs/code/StripeWebhooksController.md
 [ApiController]
 [Route("webhooks/stripe")]
+[EnableRateLimiting(WebhookRateLimitOptions.PolicyName)]
 public class StripeWebhooksController : ControllerBase
 {
     // Architecture section 8. Service Bus also counts headers in its 256 KB: see the class doc.

@@ -16,8 +16,8 @@ The adapter between the `payment-events` queue and `ProcessStripeEvent` (see `do
 | `Duplicate` | Complete | The event was already processed; nothing was written (section 6) |
 | `InvalidEvent` | Dead-letter, reason `InvalidEvent` | Permanent error: the body is unreadable or the type is unsupported, so every delivery would fail the same way (section 6). See below |
 | `Conflict` | Dead-letter, reason `ImpossibleConflict` | Permanent error: the event contradicts a recorded fact, and no retry changes that (section 6). See below |
-| `ConcurrencyConflict` | Abandon | The use case already retried from the read `ProcessStripeEvent.MaxConcurrencyAttempts` times (task 2.6). Losing that many races in a row is unlikely but not a broken assumption, so the message goes back for a later delivery |
-| `TransientFailure` | Abandon | The use case already made 1 attempt plus 3 retries over about 6 s (task 3.1, `docs/code/ProcessStripeEvent.md`). The database is still unreachable, so the message goes back and Service Bus delivers it again, up to 5 times. Not a permanent error |
+| `ConcurrencyConflict` | Abandon, with `AbandonReason` | The use case already retried from the read `ProcessStripeEvent.MaxConcurrencyAttempts` times (task 2.6). Losing that many races in a row is unlikely but not a broken assumption, so the message goes back for a later delivery |
+| `TransientFailure` | Abandon, with `AbandonReason` | The use case already made 1 attempt plus 3 retries over about 6 s (task 3.1, `docs/code/ProcessStripeEvent.md`). The database is still unreachable, so the message goes back and Service Bus delivers it again, up to 5 times. Not a permanent error |
 
 `CompleteMessageAsync` only runs after `ExecuteAsync` returns, and `ExecuteAsync` only returns those outcomes after the commit. If the worker dies between the two, the message comes back and the inbox turns it into a `Duplicate`.
 
@@ -42,6 +42,19 @@ The SDK refuses a reason or description longer than 4096 characters with `Argume
 Dead-lettering keeps the message as it was: same `MessageId` (the `evt_` ID) and same body. That is what the reprocess endpoint of task 3.4 republishes.
 
 The other way to reach the dead-letter is `MaxDeliveryCount`: a message abandoned 5 times (transient failure that never ends, concurrency conflicts, or an exception) is moved by Service Bus with the reason `MaxDeliveryCountExceeded`. Until task 3.2 permanent errors took that path too, costing four useless deliveries and losing the parser message.
+
+## The reason travels with an abandon
+
+On `TransientFailure` and `ConcurrencyConflict` the worker abandons with one application property, `AbandonReason`, set to `result.Reason` (task 3.4). Service Bus keeps application properties changed on abandon, so when the fifth abandon makes it dead-letter the message as `MaxDeliveryCountExceeded`, the last reason is still on it, and the dead-letter list shows it (see `docs/code/DeadLettersController.md`). Without it the screen couldn't tell a database outage from a poison message, since both arrive with the same Service Bus reason.
+
+- **Only these two outcomes.** They are the only abandons the worker chooses. A thrown exception (a poison message) is abandoned by the SDK, with no properties, so a dead-lettered message without `AbandonReason` is a poison message.
+- **The text is the use case's**, the same one it logged as a warning (`Event evt_... for payment pi_... failed with a transient error on all 4 attempts: ...`). The worker still doesn't read the event.
+- **The property name is a contract.** The worker writes the literal `AbandonReason` and `ServiceBusDeadLetterQueue` reads it, each from its own private constant, because the worker can't reference Infrastructure. Both tests assert the literal, the same way the dead-letter codes are checked.
+- **No reason, no properties.** `Reason` is nullable on the result; if it is null the worker passes `null`, which abandons without changes.
+
+Reprocessing removes the property from the copy it sends back, so a stale reason doesn't follow the message (see `docs/code/ServiceBusDeadLetterQueue.md`).
+
+`PaymentEventsWorkerDeadLetterTests` checks it with the emulator: a fault injector that always throws `TimeoutException` makes every attempt transient, and after about 6 s the peeked message carries `AbandonReason` with the use case's text.
 
 ## No `try`/`catch`: exceptions go back to the queue
 

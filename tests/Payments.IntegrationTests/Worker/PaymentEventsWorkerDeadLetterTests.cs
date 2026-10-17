@@ -56,7 +56,43 @@ public class PaymentEventsWorkerDeadLetterTests : IAsyncLifetime
         Assert.Equal(1, deadLettered.DeliveryCount);
     }
 
-    private static ServiceProvider BuildServices()
+    [Fact]
+    public async Task Transient_failure_is_abandoned_with_the_reason_as_an_application_property()
+    {
+        await using ServiceBusClient client = new(this.container.GetConnectionString());
+        await using ServiceProvider services = BuildServices(new AlwaysTransientFaultInjector());
+        await using ServiceBusProcessor processor = client.CreateProcessor(QueueName, new ServiceBusProcessorOptions
+        {
+            ReceiveMode = ServiceBusReceiveMode.PeekLock,
+            AutoCompleteMessages = false,
+        });
+        PaymentEventsWorker worker = new(processor, services.GetRequiredService<IServiceScopeFactory>(), NullLogger<PaymentEventsWorker>.Instance);
+        string body = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "payment_intent.succeeded.json"));
+
+        await using (ServiceBusSender sender = client.CreateSender(QueueName))
+        {
+            await sender.SendMessageAsync(new ServiceBusMessage(body) { MessageId = "evt_transient" });
+        }
+
+        await worker.StartAsync(CancellationToken.None);
+        await using ServiceBusReceiver peeker = client.CreateReceiver(QueueName);
+        object? abandonReason = null;
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(30));
+        while (abandonReason is null && !timeout.IsCancellationRequested)
+        {
+            ServiceBusReceivedMessage? peeked = await peeker.PeekMessageAsync(fromSequenceNumber: 0);
+            peeked?.ApplicationProperties.TryGetValue("AbandonReason", out abandonReason);
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+        }
+
+        await worker.StopAsync(CancellationToken.None);
+
+        string reason = Assert.IsType<string>(abandonReason);
+        Assert.Contains("failed with a transient error on all 4 attempts", reason, StringComparison.Ordinal);
+        Assert.Contains("Simulated database timeout.", reason, StringComparison.Ordinal);
+    }
+
+    private static ServiceProvider BuildServices(IFaultInjector? faultInjector = null)
     {
         ServiceCollection services = new();
         services.AddLogging();
@@ -64,7 +100,7 @@ public class PaymentEventsWorkerDeadLetterTests : IAsyncLifetime
         services.AddScoped<IPaymentStore, PaymentStore>();
         services.AddSingleton<ITransientErrorDetector, SqlTransientErrorDetector>();
         services.AddSingleton(TimeProvider.System);
-        services.AddSingleton<IFaultInjector, NoFaultInjector>();
+        services.AddSingleton<IFaultInjector>(faultInjector ?? new NoFaultInjector());
         services.AddScoped<ProcessStripeEvent>();
         return services.BuildServiceProvider();
     }

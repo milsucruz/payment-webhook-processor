@@ -1,5 +1,9 @@
+using System.Threading.RateLimiting;
 using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Options;
+using Payments.Api.Authentication;
+using Payments.Api.RateLimiting;
+using Payments.Application.DeadLetters;
 using Payments.Application.Messaging;
 using Payments.Application.Webhooks;
 using Payments.Infrastructure.Messaging;
@@ -45,6 +49,37 @@ builder.Services.AddSingleton<IEventPublisher>(serviceProvider => new ServiceBus
 
 builder.Services.AddSingleton<ReceiveStripeEvent>();
 
+builder.Services.AddSingleton<IDeadLetterQueue>(serviceProvider => new ServiceBusDeadLetterQueue(
+    serviceProvider.GetRequiredService<ServiceBusClient>(),
+    serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value.EventsQueueName));
+builder.Services.AddSingleton<ListDeadLetters>();
+builder.Services.AddSingleton<ReprocessDeadLetter>();
+
+builder.Services.AddOptions<AdminOptions>()
+    .BindConfiguration(AdminOptions.SectionName)
+    .Validate(options => !string.IsNullOrWhiteSpace(options.ApiKey), "Admin:ApiKey is required.")
+    .ValidateOnStart();
+builder.Services.AddSingleton<AdminKeyFilter>();
+
+builder.Services.AddOptions<WebhookRateLimitOptions>()
+    .BindConfiguration(WebhookRateLimitOptions.SectionName)
+    .Validate(options => options.PermitLimit > 0 && options.Window > TimeSpan.Zero, "RateLimiting:Webhook needs a positive PermitLimit and Window.")
+    .ValidateOnStart();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy(WebhookRateLimitOptions.PolicyName, httpContext =>
+    {
+        WebhookRateLimitOptions limit = httpContext.RequestServices.GetRequiredService<IOptions<WebhookRateLimitOptions>>().Value;
+        return RateLimitPartition.GetFixedWindowLimiter(WebhookRateLimitOptions.PolicyName, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = limit.PermitLimit,
+            Window = limit.Window,
+            QueueLimit = 0,
+        });
+    });
+});
+
 builder.Services.AddHealthChecks();
 builder.Services.AddOpenApi();
 
@@ -56,6 +91,8 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
     app.UseSwaggerUI(options => options.SwaggerEndpoint("/openapi/v1.json", "Payments API"));
 }
+
+app.UseRateLimiter();
 
 app.MapControllers();
 
