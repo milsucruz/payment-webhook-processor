@@ -57,15 +57,15 @@ public sealed class PaymentEventsWorker : BackgroundService
                 break;
             case ProcessStripeEventOutcome.ConcurrencyConflict:
             case ProcessStripeEventOutcome.TransientFailure:
-                await args.AbandonMessageAsync(args.Message, AbandonProperties(result.Reason), args.CancellationToken);
+                await args.AbandonMessageAsync(args.Message, AbandonProperties(args.Message.DeliveryCount, result.Reason), args.CancellationToken);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(args), result.Outcome, "Unexpected processing outcome.");
         }
     }
 
-    private static Dictionary<string, object>? AbandonProperties(string? reason) =>
-        reason is null ? null : new Dictionary<string, object> { [AbandonReasonProperty] = reason };
+    private static Dictionary<string, object>? AbandonProperties(int deliveryCount, string? reason) =>
+        reason is null ? null : new Dictionary<string, object> { [AbandonReasonProperty] = $"Delivery {deliveryCount}: {reason}" };
 
     private Task ProcessErrorAsync(ProcessErrorEventArgs args)
     {

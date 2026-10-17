@@ -16,7 +16,11 @@ Service Bus can't receive a specific message by sequence number. `ReceiveDeferre
 2. Keep every message that is not the one asked for locked in a list, so the next batch returns new messages instead of the same ones.
 3. Stop at the match, at an empty batch, or after 500 messages (`MaxScannedMessages`), which bounds the time a request can hold locks.
 4. On a match: send a copy to `payment-events`, then complete the original.
-5. Always (`finally`): abandon every message held in step 2, so they are back in the dead-letter.
+5. Always (`finally`): abandon every message held in step 2, and the match too if it wasn't completed (the send failed or the request was cancelled first), so they are back in the dead-letter.
+
+The abandons in step 5 run in parallel and each one swallows `ServiceBusException`. A failed abandon only means that message stays locked until its lock expires (60 s), and it must neither stop the other abandons nor turn a reprocess that already sent and completed into a `500`. The code review of task 3.4 found both problems in the first version, which abandoned one by one with no guard, and left the match locked for 60 s when the send failed.
+
+Once the send has succeeded, the complete runs with `CancellationToken.None`. If the operator's request were cancelled between the two, the copy would be in the queue and the original back in the dead-letter, and the next click would send a second copy. Finishing the complete avoids that, and it takes milliseconds.
 
 The lock duration is 60 s, and 500 messages in batches of 50 take far less, so no held lock expires during a scan.
 

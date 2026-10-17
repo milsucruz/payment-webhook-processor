@@ -47,14 +47,15 @@ The other way to reach the dead-letter is `MaxDeliveryCount`: a message abandone
 
 On `TransientFailure` and `ConcurrencyConflict` the worker abandons with one application property, `AbandonReason`, set to `result.Reason` (task 3.4). Service Bus keeps application properties changed on abandon, so when the fifth abandon makes it dead-letter the message as `MaxDeliveryCountExceeded`, the last reason is still on it, and the dead-letter list shows it (see `docs/code/DeadLettersController.md`). Without it the screen couldn't tell a database outage from a poison message, since both arrive with the same Service Bus reason.
 
-- **Only these two outcomes.** They are the only abandons the worker chooses. A thrown exception (a poison message) is abandoned by the SDK, with no properties, so a dead-lettered message without `AbandonReason` is a poison message.
-- **The text is the use case's**, the same one it logged as a warning (`Event evt_... for payment pi_... failed with a transient error on all 4 attempts: ...`). The worker still doesn't read the event.
+- **Only these two outcomes.** They are the only abandons the worker chooses. A thrown exception (a poison message) is abandoned by the SDK, with no properties, so a dead-lettered message without `AbandonReason` was never abandoned for the database.
+- **Prefixed with the delivery number**: `Delivery 2: Event evt_... for payment pi_... failed with a transient error on all 4 attempts: ...`. A property set on abandon stays on the message, and the SDK's abandon after an exception doesn't clear it. So a message that hit the database once and then threw on the remaining deliveries reaches the dead-letter with an old reason. The code review of task 3.4 found this; the number shows it: `Delivery 1:` on a message dead-lettered after 5 deliveries means deliveries 2 to 5 failed some other way. Clearing the property on every delivery would need a write to the broker before processing, for a case the number already explains.
+- **The rest of the text is the use case's**, the same one it logged as a warning. The worker still doesn't read the event.
 - **The property name is a contract.** The worker writes the literal `AbandonReason` and `ServiceBusDeadLetterQueue` reads it, each from its own private constant, because the worker can't reference Infrastructure. Both tests assert the literal, the same way the dead-letter codes are checked.
 - **No reason, no properties.** `Reason` is nullable on the result; if it is null the worker passes `null`, which abandons without changes.
 
 Reprocessing removes the property from the copy it sends back, so a stale reason doesn't follow the message (see `docs/code/ServiceBusDeadLetterQueue.md`).
 
-`PaymentEventsWorkerDeadLetterTests` checks it with the emulator: a fault injector that always throws `TimeoutException` makes every attempt transient, and after about 6 s the peeked message carries `AbandonReason` with the use case's text.
+`PaymentEventsWorkerDeadLetterTests` checks it with the emulator: a fault injector that always throws `TimeoutException` makes every attempt transient, and after about 6 s the peeked message carries `AbandonReason` with `Delivery 1:` and the use case's text.
 
 ## No `try`/`catch`: exceptions go back to the queue
 

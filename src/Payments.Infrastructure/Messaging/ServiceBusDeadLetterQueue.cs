@@ -46,6 +46,7 @@ public sealed class ServiceBusDeadLetterQueue : IDeadLetterQueue, IAsyncDisposab
         await using ServiceBusReceiver receiver = this.CreateDeadLetterReceiver();
         List<ServiceBusReceivedMessage> others = [];
         ServiceBusReceivedMessage? match = null;
+        bool completed = false;
         try
         {
             while (match is null && others.Count < MaxScannedMessages)
@@ -80,15 +81,18 @@ public sealed class ServiceBusDeadLetterQueue : IDeadLetterQueue, IAsyncDisposab
             ServiceBusMessage copy = new(match);
             copy.ApplicationProperties.Remove(AbandonReasonProperty);
             await this.sender.SendMessageAsync(copy, cancellationToken);
-            await receiver.CompleteMessageAsync(match, cancellationToken);
+            await receiver.CompleteMessageAsync(match, CancellationToken.None);
+            completed = true;
             return match.MessageId;
         }
         finally
         {
-            foreach (ServiceBusReceivedMessage message in others)
+            if (match is not null && !completed)
             {
-                await receiver.AbandonMessageAsync(message, cancellationToken: CancellationToken.None);
+                others.Add(match);
             }
+
+            await Task.WhenAll(others.Select(message => AbandonQuietlyAsync(receiver, message)));
         }
     }
 
@@ -101,6 +105,17 @@ public sealed class ServiceBusDeadLetterQueue : IDeadLetterQueue, IAsyncDisposab
             ReceiveMode = ServiceBusReceiveMode.PeekLock,
             PrefetchCount = 0,
         });
+
+    private static async Task AbandonQuietlyAsync(ServiceBusReceiver receiver, ServiceBusReceivedMessage message)
+    {
+        try
+        {
+            await receiver.AbandonMessageAsync(message, cancellationToken: CancellationToken.None);
+        }
+        catch (ServiceBusException)
+        {
+        }
+    }
 
     private static DeadLetterMessage ToDeadLetterMessage(ServiceBusReceivedMessage message) =>
         new(

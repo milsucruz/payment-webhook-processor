@@ -88,6 +88,7 @@ public class PaymentEventsWorkerDeadLetterTests : IAsyncLifetime
         await worker.StopAsync(CancellationToken.None);
 
         string reason = Assert.IsType<string>(abandonReason);
+        Assert.StartsWith("Delivery 1: Event evt_", reason, StringComparison.Ordinal);
         Assert.Contains("failed with a transient error on all 4 attempts", reason, StringComparison.Ordinal);
         Assert.Contains("Simulated database timeout.", reason, StringComparison.Ordinal);
     }
