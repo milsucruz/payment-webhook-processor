@@ -8,7 +8,7 @@ Tells `ProcessStripeEvent` whether an exception from the database is worth retry
 
 An exception is transient when, walking down `InnerException`:
 
-1. the first `SqlException` found has at least one `SqlError` whose number is in the list below; or
+1. the first `SqlException` found was caused by a `SocketException`, or has at least one `SqlError` whose number is in the list below; or
 2. a `TimeoutException` is found before any `SqlException`.
 
 Anything else is not transient, including `OperationCanceledException`, `DbUpdateConcurrencyException` and primary key violations (2627), which the store already turns into results.
@@ -23,6 +23,7 @@ The walk is needed because EF Core wraps the error: a failure in `SaveChangesAsy
 | --- | --- |
 | -2 | Command timeout (SqlClient's own number) |
 | 258 | Connection timeout. Checked in the task 3.1 session: a refused connection (`127.0.0.1,1`) and an address that doesn't answer both end in 258, because SqlClient retries a refused connection until `Connect Timeout` runs out |
+| `SocketException` inside the `SqlException` | The connection failed at the socket. Found when CI failed in task 3.1: on Linux, which is what the containers run, a refused connection fails at once with number 0 and a `SocketException` inside, instead of retrying until 258 as on Windows. A database container restarting refuses connections like that, so it has to count as transient. Number 0 alone isn't used, because SqlClient also uses it for errors that aren't about the network |
 | 20, 64, 233, 10053, 10054, 10060 | Connection broken or reset by the network or the server |
 | 1205 | Deadlock victim. Rare with `READ_COMMITTED_SNAPSHOT` (see `docs/code/PaymentsDbContext.md`), and retrying the whole transaction is the documented fix |
 | 4060, 4221, 40143, 40197, 40501, 40540, 40613, 42108, 42109, 49918, 49919, 49920 | Azure SQL: database unavailable, busy, reconfiguring, failing over or throttling. 40613 is also what a paused free database returns while it resumes |
@@ -44,7 +45,7 @@ A singleton in the worker's `Program.cs`. It has no state, and the use case is s
 
 `tests/Payments.Infrastructure.Tests/Persistence/SqlTransientErrorDetectorTests.cs`:
 
-- `Connection_that_cannot_reach_the_server_is_transient` opens a real `SqlConnection` to `127.0.0.1,1` with `Connect Timeout=1`, so it gets a real `SqlException` without Docker (`SqlException` has no public constructor). It also checks the same exception wrapped in a `DbUpdateException`.
+- `Connection_that_cannot_reach_the_server_is_transient` opens a real `SqlConnection` to `127.0.0.1,1` with `Connect Timeout=1`, so it gets a real `SqlException` without Docker: 258 on Windows, number 0 with a `SocketException` on Linux (CI), and both must be transient (`SqlException` has no public constructor). It also checks the same exception wrapped in a `DbUpdateException`.
 - `TimeoutException`, bare and wrapped, is transient; `InvalidOperationException`, `OperationCanceledException` and a `DbUpdateException` without a SQL error are not.
 - `IsTransientErrorNumber` is public so that numbers that a test can't produce for real (deadlock, Azure SQL) are checked one by one, together with numbers that must stay permanent (2627 primary key, 547 foreign key, 207 invalid column).
 

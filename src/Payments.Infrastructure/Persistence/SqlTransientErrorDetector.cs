@@ -1,3 +1,4 @@
+using System.Net.Sockets;
 using Microsoft.Data.SqlClient;
 using Payments.Application.Processing;
 
@@ -18,7 +19,8 @@ public sealed class SqlTransientErrorDetector : ITransientErrorDetector
         {
             if (current is SqlException sqlException)
             {
-                return sqlException.Errors.Cast<SqlError>().Any(error => IsTransientErrorNumber(error.Number));
+                return sqlException.InnerException is SocketException
+                    || sqlException.Errors.Cast<SqlError>().Any(error => IsTransientErrorNumber(error.Number));
             }
 
             if (current is TimeoutException)
