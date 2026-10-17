@@ -30,7 +30,7 @@ The problem is real: Stripe resends events when it doesn't get a timely response
 | Event | A Stripe webhook, identified by `evt_...` |
 | Payment | A Stripe PaymentIntent, identified by `pi_...` |
 | Inbox | Table that records every received event and guarantees idempotency |
-| Dead-letter (DLQ) | Service Bus subqueue for messages that exhausted their attempts |
+| Dead-letter (DLQ) | Service Bus subqueue for messages that exhausted their attempts or hit a permanent error |
 | Requested state | The state an event leads the payment to, per the table in section 6 |
 | Payment event | The parts of an event that matter to a payment: the payment, its requested state and its amounts |
 | Duplicate | The same event (same `evt_...`) delivered again; it is already in the inbox, so nothing is written. Not the same as redundant, which is a different event that requests the state the payment is already in |
