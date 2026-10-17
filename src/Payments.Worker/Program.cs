@@ -38,6 +38,7 @@ if (string.IsNullOrWhiteSpace(paymentsConnectionString))
 
 builder.Services.AddDbContext<PaymentsDbContext>(options => options.UseSqlServer(paymentsConnectionString));
 builder.Services.AddScoped<IPaymentStore, PaymentStore>();
+builder.Services.AddSingleton<ITransientErrorDetector, SqlTransientErrorDetector>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<ProcessStripeEvent>();
 

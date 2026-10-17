@@ -15,7 +15,8 @@ The adapter between the `payment-events` queue and `ProcessStripeEvent` (see `do
 | `Applied`, `IgnoredOutOfOrder`, `Redundant` | Complete | The transaction is committed, so the message can leave the queue (step 8 of section 4) |
 | `Duplicate` | Complete | The event was already processed; nothing was written (section 6) |
 | `InvalidEvent`, `Conflict` | Abandon | Provisional: see below |
-| `ConcurrencyConflict` | Abandon | The use case already retried from the read `ProcessStripeEvent.MaxAttempts` times (task 2.6). Losing that many races in a row is unlikely but not a broken assumption, so the message goes back for a later delivery. Unlike the row above, task 3.2 keeps this one as an abandon |
+| `ConcurrencyConflict` | Abandon | The use case already retried from the read `ProcessStripeEvent.MaxConcurrencyAttempts` times (task 2.6). Losing that many races in a row is unlikely but not a broken assumption, so the message goes back for a later delivery. Unlike the row above, task 3.2 keeps this one as an abandon |
+| `TransientFailure` | Abandon | The use case already made 1 attempt plus 3 retries over about 6 s (task 3.1, `docs/code/ProcessStripeEvent.md`). The database is still unreachable, so the message goes back and Service Bus delivers it again, up to 5 times. Not a permanent error: task 3.2 keeps this one as an abandon too |
 
 `CompleteMessageAsync` only runs after `ExecuteAsync` returns, and `ExecuteAsync` only returns those outcomes after the commit. If the worker dies between the two, the message comes back and the inbox turns it into a `Duplicate`.
 
@@ -25,7 +26,7 @@ Section 6 sends permanent errors straight to the dead-letter, with reason and de
 
 ## No `try`/`catch`: exceptions go back to the queue
 
-The handler doesn't catch anything (layering rule in `CLAUDE.md`). When the use case throws (database down, cancellation on shutdown), the exception leaves the handler and the SDK:
+The handler doesn't catch anything (layering rule in `CLAUDE.md`). When the use case throws (an error that is not transient, or cancellation on shutdown; transient database errors are retried inside the use case since task 3.1), the exception leaves the handler and the SDK:
 
 1. calls `ProcessErrorAsync`, which logs it as an error with the queue name and the error source;
 2. abandons the message, because it isn't settled and the receive mode is peek-lock.

@@ -14,6 +14,8 @@ public class ProcessStripeEventTests
 
     private readonly InMemoryPaymentStore store = new();
     private readonly CollectingLogger<ProcessStripeEvent> logger = new();
+    private readonly TestTransientErrorDetector transientErrorDetector = new();
+    private readonly FixedTimeProvider timeProvider = new(processedAt);
 
     [Fact]
     public async Task Event_for_an_unknown_payment_creates_it_in_the_requested_state()
@@ -185,18 +187,87 @@ public class ProcessStripeEventTests
     {
         string payload = ReadFixture("payment_intent.succeeded.json");
         PaymentEvent paymentEvent = StripeEventParser.Parse(payload);
-        this.store.ConcurrencyConflictsToReport = ProcessStripeEvent.MaxAttempts;
+        this.store.ConcurrencyConflictsToReport = ProcessStripeEvent.MaxConcurrencyAttempts;
 
         ProcessStripeEventResult result = await this.Process(payload);
 
         Assert.Equal(ProcessStripeEventOutcome.ConcurrencyConflict, result.Outcome);
         Assert.Contains(paymentEvent.EventId, result.Reason, StringComparison.Ordinal);
-        Assert.Equal(ProcessStripeEvent.MaxAttempts, this.store.TransactionsStarted);
+        Assert.Equal(ProcessStripeEvent.MaxConcurrencyAttempts, this.store.TransactionsStarted);
         Assert.Equal(0, this.store.Commits);
         Assert.Empty(this.store.Payments);
         Assert.Empty(this.store.InboxEvents);
         Assert.Empty(this.store.History);
         Assert.Contains(this.logger.Entries, entry => entry.Level == LogLevel.Warning);
+    }
+
+    [Fact]
+    public async Task Transient_error_on_two_attempts_is_retried_and_the_third_attempt_applies_the_event()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        PaymentEvent paymentEvent = StripeEventParser.Parse(payload);
+        this.store.CommitExceptions.Enqueue(new TransientTestException());
+        this.store.CommitExceptions.Enqueue(new TransientTestException());
+
+        ProcessStripeEventResult result = await this.Process(payload);
+
+        Assert.Equal(new ProcessStripeEventResult(ProcessStripeEventOutcome.Applied), result);
+        Assert.Equal(3, this.store.TransactionsStarted);
+        Assert.Equal(1, this.store.Commits);
+        Assert.Equal(PaymentStatus.Paid, this.store.Payments[paymentEvent.PaymentIntentId].Status);
+        Assert.Single(this.store.InboxEvents);
+        Assert.Single(this.store.History);
+        Assert.Equal([TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(1)], this.timeProvider.Delays);
+        Assert.Equal(2, this.logger.Entries.Count(entry => entry.Level == LogLevel.Warning && entry.Message.Contains("Transient error", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task Transient_error_on_every_attempt_writes_nothing_and_returns_transient_failure_after_three_retries()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        PaymentEvent paymentEvent = StripeEventParser.Parse(payload);
+        for (int attempt = 0; attempt <= ProcessStripeEvent.TransientRetryDelays.Count; attempt++)
+        {
+            this.store.CommitExceptions.Enqueue(new TransientTestException());
+        }
+
+        ProcessStripeEventResult result = await this.Process(payload);
+
+        Assert.Equal(ProcessStripeEventOutcome.TransientFailure, result.Outcome);
+        Assert.Contains(paymentEvent.EventId, result.Reason, StringComparison.Ordinal);
+        Assert.Equal(4, this.store.TransactionsStarted);
+        Assert.Equal(0, this.store.Commits);
+        Assert.Empty(this.store.Payments);
+        Assert.Empty(this.store.InboxEvents);
+        Assert.Empty(this.store.History);
+        Assert.Equal([TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5)], this.timeProvider.Delays);
+    }
+
+    [Fact]
+    public async Task Exception_that_is_not_transient_propagates_without_retry()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        this.store.CommitExceptions.Enqueue(new InvalidOperationException("not transient"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => this.Process(payload));
+
+        Assert.Equal(1, this.store.TransactionsStarted);
+        Assert.Empty(this.timeProvider.Delays);
+    }
+
+    [Fact]
+    public async Task Transient_retries_and_concurrency_attempts_have_separate_limits()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        this.store.CommitExceptions.Enqueue(new TransientTestException());
+        this.store.ConcurrencyConflictsToReport = ProcessStripeEvent.MaxConcurrencyAttempts - 1;
+
+        ProcessStripeEventResult result = await this.Process(payload);
+
+        Assert.Equal(new ProcessStripeEventResult(ProcessStripeEventOutcome.Applied), result);
+        Assert.Equal(1 + ProcessStripeEvent.MaxConcurrencyAttempts, this.store.TransactionsStarted);
+        Assert.Equal(1, this.store.Commits);
+        Assert.Equal([TimeSpan.FromMilliseconds(200)], this.timeProvider.Delays);
     }
 
     [Theory]
@@ -234,7 +305,7 @@ public class ProcessStripeEventTests
 
     private Task<ProcessStripeEventResult> Process(string payload)
     {
-        ProcessStripeEvent processStripeEvent = new(this.store, new FixedTimeProvider(processedAt), this.logger);
+        ProcessStripeEvent processStripeEvent = new(this.store, this.transientErrorDetector, this.timeProvider, this.logger);
         return processStripeEvent.ExecuteAsync(payload, CancellationToken.None);
     }
 }

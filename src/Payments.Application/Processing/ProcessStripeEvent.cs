@@ -9,15 +9,24 @@ public class ProcessStripeEvent
 {
     public const string OutOfOrderReason = "out of order";
     public const string RedundantReason = "redundant";
-    public const int MaxAttempts = 3;
+    public const int MaxConcurrencyAttempts = 3;
+
+    public static readonly IReadOnlyList<TimeSpan> TransientRetryDelays =
+        [TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5)];
 
     private readonly IPaymentStore paymentStore;
+    private readonly ITransientErrorDetector transientErrorDetector;
     private readonly TimeProvider timeProvider;
     private readonly ILogger<ProcessStripeEvent> logger;
 
-    public ProcessStripeEvent(IPaymentStore paymentStore, TimeProvider timeProvider, ILogger<ProcessStripeEvent> logger)
+    public ProcessStripeEvent(
+        IPaymentStore paymentStore,
+        ITransientErrorDetector transientErrorDetector,
+        TimeProvider timeProvider,
+        ILogger<ProcessStripeEvent> logger)
     {
         this.paymentStore = paymentStore;
+        this.transientErrorDetector = transientErrorDetector;
         this.timeProvider = timeProvider;
         this.logger = logger;
     }
@@ -35,17 +44,47 @@ public class ProcessStripeEvent
             return new ProcessStripeEventResult(ProcessStripeEventOutcome.InvalidEvent, exception.Message);
         }
 
-        for (int attempt = 1; ; attempt++)
+        int concurrencyAttempts = 0;
+        int transientRetries = 0;
+        while (true)
         {
-            ProcessStripeEventResult result = await this.ProcessOnceAsync(paymentEvent, payload, cancellationToken);
+            ProcessStripeEventResult result;
+            try
+            {
+                result = await this.ProcessOnceAsync(paymentEvent, payload, cancellationToken);
+            }
+            catch (Exception exception) when (this.transientErrorDetector.IsTransient(exception))
+            {
+                if (transientRetries == TransientRetryDelays.Count)
+                {
+                    string reason = $"Event {paymentEvent.EventId} for payment {paymentEvent.PaymentIntentId} failed with a transient error on all {TransientRetryDelays.Count + 1} attempts: {exception.Message}";
+                    this.logger.LogWarning(exception, "Transient error: {Reason}", reason);
+                    return new ProcessStripeEventResult(ProcessStripeEventOutcome.TransientFailure, reason);
+                }
+
+                TimeSpan delay = TransientRetryDelays[transientRetries];
+                transientRetries++;
+                this.logger.LogWarning(
+                    exception,
+                    "Transient error on payment {PaymentIntentId} for event {EventId}, retrying in {Delay} (retry {Retry} of {MaxRetries})",
+                    paymentEvent.PaymentIntentId,
+                    paymentEvent.EventId,
+                    delay,
+                    transientRetries,
+                    TransientRetryDelays.Count);
+                await Task.Delay(delay, this.timeProvider, cancellationToken);
+                continue;
+            }
+
             if (result.Outcome != ProcessStripeEventOutcome.ConcurrencyConflict)
             {
                 return result;
             }
 
-            if (attempt == MaxAttempts)
+            concurrencyAttempts++;
+            if (concurrencyAttempts == MaxConcurrencyAttempts)
             {
-                string reason = $"Event {paymentEvent.EventId} for payment {paymentEvent.PaymentIntentId} hit a concurrency conflict on all {MaxAttempts} attempts.";
+                string reason = $"Event {paymentEvent.EventId} for payment {paymentEvent.PaymentIntentId} hit a concurrency conflict on all {MaxConcurrencyAttempts} attempts.";
                 this.logger.LogWarning("Concurrency conflict: {Reason}", reason);
                 return new ProcessStripeEventResult(ProcessStripeEventOutcome.ConcurrencyConflict, reason);
             }
@@ -54,8 +93,8 @@ public class ProcessStripeEvent
                 "Concurrency conflict on payment {PaymentIntentId} for event {EventId}, retrying (attempt {Attempt} of {MaxAttempts})",
                 paymentEvent.PaymentIntentId,
                 paymentEvent.EventId,
-                attempt,
-                MaxAttempts);
+                concurrencyAttempts,
+                MaxConcurrencyAttempts);
         }
     }
 
