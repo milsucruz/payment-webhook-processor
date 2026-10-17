@@ -51,6 +51,18 @@ services:
     depends_on:
       - servicebus
 
+  # Runs once and exits: applies the EF Core migrations, creating the Payments database on the first run.
+  migrator:
+    build:
+      context: .
+      dockerfile: src/Payments.Migrator/Dockerfile
+    environment:
+      ConnectionStrings__Payments: "Server=sqlserver;Database=Payments;User Id=sa;Password=${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD in .env};TrustServerCertificate=True"
+    restart: "no"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+
   worker:
     build:
       context: .

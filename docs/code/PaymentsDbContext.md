@@ -1,0 +1,63 @@
+# PaymentsDbContext
+
+`src/Payments.Infrastructure/Persistence/PaymentsDbContext.cs`, with `InboxEvent.cs`, `PaymentHistoryEntry.cs`, `UtcDateTimeOffsetConverter.cs` and `Migrations/` next to it, the `Payment` entity in `src/Payments.Domain/Payment.cs`, and the `src/Payments.Migrator` project.
+
+The EF Core mapping of the three tables in section 5 of the architecture, and the executable that applies the migrations. This document holds the detail that the code leaves out. Keep it in sync when the class changes.
+
+## Where each entity lives
+
+| Entity | Project | Why |
+| --- | --- | --- |
+| `Payment` | Domain | Section 11 puts it there. It has no EF attribute and no `RowVersion`, so Domain still references nothing (`DomainDependencyTests` guards that) |
+| `InboxEvent` | Infrastructure | The inbox is the idempotency mechanism, not a domain concept |
+| `PaymentHistoryEntry` | Infrastructure | A persistence record of what processing did; the use case decides how it is written (task 2.4) |
+
+All the mapping is fluent, in `OnModelCreating`. Task 2.3 only gives `Payment` its state: a constructor that EF binds by parameter name and properties with private setters. Its behavior, if any, arrives with the use case in task 2.4.
+
+## `RowVersion` as a shadow property
+
+`RowVersion` exists in the model and the table, but not in the `Payment` class. EF reads it on load, sends it in the `WHERE` of every `UPDATE` and throws `DbUpdateConcurrencyException` when no row matches (task 2.6). Putting a `byte[] RowVersion` on the domain class would leak a SQL Server detail into Domain.
+
+The shadow property is `IsRequired()`. A shadow `byte[]` is nullable by default, and the first migration came out with a nullable `rowversion`, which SQL Server treats as `varbinary(8)` instead of `binary(8)`. The table now reports it as `timestamp`, the old name of `rowversion`, not null.
+
+## `DateTimeOffset` in code, `datetime2` in the database
+
+EF maps `DateTimeOffset` to `datetimeoffset` by default; `CLAUDE.md` asks for `datetime2`. `ConfigureConventions` applies `UtcDateTimeOffsetConverter` and the `datetime2` column type to every `DateTimeOffset` property, so a new column can't forget it. Writing stores `UtcDateTime`; reading returns the value with offset zero. A value with another offset is converted, not rejected, because the instant stays the same.
+
+## Nullable columns
+
+Section 5 doesn't say which columns accept null. Everything is `NOT NULL` except:
+
+| Column | Null when |
+| --- | --- |
+| `PaymentHistory.FromStatus` | First event of an unknown payment: there is no previous state. A made-up value would be wrong, and `PaymentStatus` starts at 1 so that 0 is never valid |
+| `PaymentHistory.Reason` | The event was applied |
+| `InboxEvents.TraceId` | There is no current `Activity`, which is the case until telemetry arrives in M5 |
+
+`InboxEvents.Outcome` uses `TransitionOutcome`, whose `Conflict` value is never stored: a conflict goes to the dead-letter without an inbox row.
+
+## Migrations
+
+The migrations live in Infrastructure, next to the context, so EF needs no `MigrationsAssembly` setting. `Payments.Migrator` is the startup project:
+
+```bash
+dotnet ef migrations add <Name> -p src/Payments.Infrastructure -s src/Payments.Migrator -o Persistence/Migrations
+```
+
+There is no `IDesignTimeDbContextFactory`. `dotnet ef` finds the host by intercepting `builder.Build()` in the Migrator, and stops it there, so `MigrateAsync` never runs at design time. That is also why the Migrator doesn't fail on a missing connection string: `migrations add` builds the host without one. At run time, a missing connection string fails on the first `MigrateAsync` call, and the container exits non-zero.
+
+The `.editorconfig` marks `Persistence/Migrations/**.cs` as generated code. The files come from `dotnet ef` with block namespaces and `#nullable disable`, which the style rules reject, and they are never edited by hand.
+
+## What `MigrateAsync` does on a fresh server
+
+Locally, `sa` can create databases, so the first run creates `Payments`. EF 10 then runs `ALTER DATABASE ... SET READ_COMMITTED_SNAPSHOT ON`, guarded by `SERVERPROPERTY('EngineEdition') <> 5`. Azure SQL (edition 5) already has it on by default, so local and cloud read with the same isolation. That matters in task 2.6: under read committed snapshot, the read before the write doesn't block, and the conflict shows up as a `RowVersion` or primary key failure on the write.
+
+In the cloud the database comes from the Bicep (task 4.3), and the migration job only has `db_ddladmin` (section 8), so it never creates the database.
+
+## Docker Compose
+
+The `migrator` service runs once and exits with code 0, after `sqlserver` is healthy. A second run logs `No migrations were applied. The database is already up to date.` The connection string is built in the compose file from `MSSQL_SA_PASSWORD`, with `TrustServerCertificate=True` because the local SQL Server uses a self-signed certificate. Nothing else depends on the migrator yet: the worker starts using the database in task 2.5 (see `docs/pending.md`).
+
+## The `System.Security.Cryptography.Pkcs` reference
+
+`Microsoft.EntityFrameworkCore.SqlServer` 10.0.12 brings `Microsoft.Data.SqlClient` 6.1.6, which brings `System.Security.Cryptography.Pkcs` 9.0.11. Two advisories published on 2026-10-13 (CVE-2026-84008 and CVE-2026-70162, denial of service) cover it, and with warnings as errors, NuGet audit fails the build. EF 10.0.13 still brings the same version. Infrastructure references `System.Security.Cryptography.Pkcs` 10.0.13, the first patched version, directly, which raises the transitive one for every project above it. Remove the reference when SqlClient brings a patched version (see `docs/pending.md`).
