@@ -35,7 +35,7 @@ Two replicas (or two of the 4 concurrent calls of one worker) can process events
 | Attempt result | What happens | Log |
 | --- | --- | --- |
 | Anything but `ConcurrencyConflict` | Returned as is | As in the table above |
-| `ConcurrencyConflict`, attempts left | The `await using` disposes the transaction (rollback), and the next attempt opens a new one and reads again | Information, with payment, event and attempt number |
+| `ConcurrencyConflict`, attempts left | `ProcessOnceAsync` disposes the transaction (rollback), and the next attempt opens a new one and reads again | Information, with payment, event and attempt number |
 | `ConcurrencyConflict` on the last attempt | Returns `ConcurrencyConflict` with a reason naming event and payment | Warning |
 
 Choices behind it:
@@ -53,7 +53,7 @@ A transient error is a failure that a later attempt can fix: the database is res
 
 | Attempt result | What happens | Log |
 | --- | --- | --- |
-| Transient exception, retries left | The `await using` disposes the transaction, the use case waits the next delay and starts a new attempt | Warning with the exception, payment, event, delay and retry number |
+| Transient exception, retries left | `ProcessOnceAsync` disposes the transaction (see "Rollback after a failed attempt"), the use case waits the next delay and starts a new attempt | Warning with the exception, payment, event, delay and retry number |
 | Transient exception after the third retry | Returns `TransientFailure` with a reason naming event and payment, plus the exception message | Warning with the exception |
 | Any other exception | Not caught: it reaches the worker, the SDK abandons the message (see `docs/code/PaymentEventsWorker.md`) | Error, from `ProcessErrorAsync` |
 
@@ -69,6 +69,20 @@ Choices behind it:
 - **A commit that fails after the server committed.** If the connection drops while the commit's reply is on its way, the use case sees a transient error but the rows are in the database. The retry then hits the inbox primary key and returns `Duplicate`, so the event is still applied only once.
 
 The full budget of one delivery is the 6.2 s of delays plus the time each attempt takes to fail. With the database down, each attempt waits for the connection timeout (15 s by default), so the four attempts can take about 66 s, more than the 60 s lock. The lock is not lost: the processor renews it while the handler runs (`MaxAutoLockRenewalDuration`, 5 min by default; see `docs/code/PaymentEventsWorker.md`).
+
+## Rollback after a failed attempt
+
+`ProcessOnceAsync` opens the transaction and runs the rest of the attempt in `DecideAndSaveAsync`. If that throws, the transaction is disposed in `DisposeFailedTransactionAsync`, which logs a failed dispose as a Warning and swallows it, and then the original exception is rethrown with `throw;`. Found in task 3.7: until then the transaction was an `await using`, and an exception from its dispose replaced the one that made the attempt fail.
+
+That happens for real. With the SQL Server container paused in the middle of an attempt, the next command times out (`SqlException` -2, transient), and then `SqlTransaction.Dispose` sometimes throws `InvalidOperationException` ("The connection is closed", from `SqlInternalTransaction.Dispose` calling `Rollback`) and sometimes doesn't, depending on whether SqlClient has already marked the connection as broken. An explicit `RollbackAsync` on the same transaction always throws `InvalidOperationException` ("This SqlTransaction has completed"). Neither is transient, so the detector said no, and the retry that the timeout deserved was lost: the message was abandoned as if the event were poison.
+
+Choices behind it:
+
+- **The first exception decides.** Whether to retry is a question about why the attempt failed, not about the cleanup. A rollback that fails on a broken connection loses nothing: SQL Server rolls back an open transaction when the session ends, and the next attempt opens a new transaction.
+- **Logged, not hidden.** A rollback failure on a connection that is still alive would be a real problem, so it leaves a Warning with the exception instead of disappearing.
+- **In the use case, not in `PaymentStore`.** The store could swallow errors in its own dispose, but then the rule would live in Infrastructure, hold only for that store, and hide the failure from the use case's log. Here it holds for any `IPaymentStore`. The rule in `CLAUDE.md` keeps `try`/`catch` out of controllers and the worker, not out of use cases.
+- **Only after a failure.** When the attempt returns a result, the transaction is disposed normally. After a commit the dispose does nothing. After `Conflict`, `Duplicate` or `ConcurrencyConflict` it rolls back, and if that throws, the exception reaches the worker and the message is abandoned and delivered again, which is safe: nothing was committed.
+- **The same `DbContext` for the retry.** The task 3.1 item asked whether a broken connection would need a new scope per retry. It doesn't: in the task 3.7 test, the next `BeginTransactionAsync` on the same context opens a new connection and the attempt commits. That holds even when the dispose threw: EF Core's `RelationalTransaction.DisposeAsync` then stops before clearing its state, so `Database.CurrentTransaction` is still set when the retry starts (seen in 1 of 8 runs of a throwaway loop in the task 3.7 session, raised by the code review), and the retry still opened a new transaction and committed. The second test pins that state on every run.
 
 ## Why the inbox comes after the read
 
@@ -137,6 +151,16 @@ The double can't produce a real race, so task 2.6's done criterion is checked by
 - `BarrierPaymentStore` wraps `PaymentStore` and holds each run after its first read until both have read, so both decide from the same state and the race happens every time, not by luck. It also counts the `ConcurrencyConflict` results, and the test asserts exactly one, which proves the race really happened.
 - Two cases: existing payment in `created` (`RowVersion`) and unknown payment (`PK_Payments`). Both end `paid` with `LastEventId` from `succeeded`, two inbox rows and two history rows. Whichever wins, the other is applied or ignored as out of order on its retry.
 - With `MaxConcurrencyAttempts = 1` (no retry; the constant was `MaxAttempts` until task 3.1), both cases fail (mutation check in the task 2.6 session).
+
+The transient retry over a real broken connection (task 3.7) is checked by `tests/Payments.IntegrationTests/Processing/ProcessStripeEventBrokenConnectionTests.cs`, also against SQL Server in Testcontainers:
+
+- `PausingPaymentStore` wraps `PaymentStore`, pauses the container (`PauseAsync`, which freezes the process, as a paused or unreachable database looks from the client) right after the first read, with the transaction open, and unpauses it when the next attempt opens its transaction. So the failure always lands between the read and the first write, and the test needs no sleep.
+- The connection string sets `Command Timeout=3`, so the write after the pause fails in about 8 s (the timeout plus SqlClient's attention wait) instead of more than 30 s. Production keeps the default.
+- `Transient_error_from_a_paused_database_is_retried_and_a_later_attempt_commits` is the plain case. Its dispose is SqlClient's own, which throws on some runs and not on others (see "Rollback after a failed attempt").
+- `Retry_still_happens_when_the_rollback_of_the_broken_transaction_throws` makes that case certain: the store's first transaction calls the real `RollbackAsync` on dispose, which throws `InvalidOperationException` every time, and doesn't call EF Core's dispose afterwards, so `Database.CurrentTransaction` stays set, as when SqlClient's own dispose throws. The test asserts that this happened once. The first version disposed in a `finally`, which cleared that state, so the test didn't cover the real failure (code review).
+- Both assert `Applied`, two transactions, and one payment, inbox row and history row.
+- With the `await using` back in place of `DisposeFailedTransactionAsync`, the second test fails every time and the first one on some runs, both with the `InvalidOperationException` (checked in the task 3.7 session, which is how the problem was found).
+- Each test starts its own container in `InitializeAsync` (xUnit builds the class once per test), as in `ProcessStripeEventConcurrencyTests`, instead of using `WorkerFixture`'s: pausing a shared container would stop the tests that use it.
 
 ### Property test
 

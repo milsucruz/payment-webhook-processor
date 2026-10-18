@@ -51,4 +51,4 @@ A singleton in the worker's `Program.cs`. It has no state, and the use case is s
 - `TimeoutException`, bare and wrapped, is transient; `InvalidOperationException`, `OperationCanceledException` and a `DbUpdateException` without a SQL error are not.
 - `IsTransientErrorNumber` is public so that numbers that a test can't produce for real (deadlock, Azure SQL) are checked one by one, together with numbers that must stay permanent (2627 primary key, 547 foreign key, 207 invalid column).
 
-Retrying against a real SQL Server whose connection drops mid-transaction is not tested here: see the task 3.1 item for 3.5 in `docs/pending.md`.
+Retrying against a real SQL Server whose connection drops mid-transaction is tested by `ProcessStripeEventBrokenConnectionTests` (task 3.7): the paused container makes the command time out with -2, which this detector classifies as transient. See `docs/code/ProcessStripeEvent.md`.
