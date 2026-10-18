@@ -351,7 +351,7 @@ Container Apps references the Key Vault secrets through the managed identity. Ro
 
 - **Signature:** validated over the raw body, with HMAC-SHA256 and a 5-minute tolerance against replay.
 - **Body size:** limited to 256 KB, the message cap of the Basic tier. That cap also counts the message headers, so a body right at the limit is accepted and then fails to publish, which answers `500`. Real events are a few KB, so the limit is kept rather than lowered to an arbitrary value.
-- **Rate limit:** the ASP.NET Core rate limiter protects the endpoint from floods of unsigned requests.
+- **Rate limit:** the ASP.NET Core rate limiter protects the endpoint from floods of unsigned requests. It is a fixed window of 100 requests per 10 s per client IP, with no queue, and it answers `429` above the limit. A fixed window can let up to twice the limit through around a window boundary. It runs before the signature check, so unsigned requests use up the limit too. The partition is per IP so that a flood from one source doesn't use up the budget of Stripe's deliveries; behind the Container Apps ingress the connection's IP is the proxy's until the API trusts the ingress's forwarded headers. A delivery rejected with `429` never reaches the queue, so it is not in the dead-letter: Stripe resends it, in the sandbox only three times over a few hours (section 4), and after that it can only be resent from the Stripe dashboard.
 - **IP allowlist:** Stripe publishes its source IPs. It stays as optional hardening, because it requires maintaining the list.
 
 ### Dashboard

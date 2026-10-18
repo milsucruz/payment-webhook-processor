@@ -1,6 +1,8 @@
+using System.Threading.RateLimiting;
 using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Options;
 using Payments.Api.Authorization;
+using Payments.Api.RateLimiting;
 using Payments.Application.DeadLetters;
 using Payments.Application.Messaging;
 using Payments.Application.Webhooks;
@@ -59,6 +61,28 @@ builder.Services.AddOptions<AdminOptions>()
     .Validate(options => !string.IsNullOrWhiteSpace(options.ApiKey), "Admin:ApiKey is required.")
     .ValidateOnStart();
 
+builder.Services.AddOptions<WebhookRateLimitOptions>()
+    .BindConfiguration(WebhookRateLimitOptions.SectionName)
+    .Validate(options => options.PermitLimit > 0, "WebhookRateLimit:PermitLimit must be positive.")
+    .Validate(options => options.Window > TimeSpan.Zero, "WebhookRateLimit:Window must be positive.")
+    .ValidateOnStart();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy(WebhookRateLimitOptions.PolicyName, httpContext =>
+    {
+        WebhookRateLimitOptions limit = httpContext.RequestServices.GetRequiredService<IOptions<WebhookRateLimitOptions>>().Value;
+        string clientIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
+
+        return RateLimitPartition.GetFixedWindowLimiter(clientIp, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = limit.PermitLimit,
+            Window = limit.Window,
+            QueueLimit = 0,
+        });
+    });
+});
+
 builder.Services.AddHealthChecks();
 builder.Services.AddOpenApi();
 
@@ -70,6 +94,9 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
     app.UseSwaggerUI(options => options.SwaggerEndpoint("/openapi/v1.json", "Payments API"));
 }
+
+app.UseRouting();
+app.UseRateLimiter();
 
 app.MapControllers();
 
