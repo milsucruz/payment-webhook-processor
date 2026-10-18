@@ -54,7 +54,7 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 - A chave de idempotência é o ID do evento (`evt_...`). Inbox, estado e histórico são gravados na mesma transação.
 - O worker completa a mensagem só depois do commit. A conclusão automática fica desligada.
 - O worker não reordena eventos. Um evento só é aplicado se levar o pagamento a um nível maior, conforme a tabela da seção 6.
-- Erro transitório é repetido; erro permanente vai direto para a dead-letter com motivo.
+- Erro transitório é repetido. Erro permanente (evento ilegível, tipo não suportado ou conflito impossível) vai direto para a dead-letter com motivo; erro não classificado volta para a fila e, depois de 5 entregas, vai para a dead-letter como `MaxDeliveryCountExceeded`.
 - Service Bus na camada Basic: sem sessões, sem detecção de duplicatas, sem tópicos.
 - O projeto Domain não referencia nenhum outro projeto nem pacote do Azure.
 

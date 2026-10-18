@@ -7,8 +7,8 @@ namespace Payments.Application.Processing;
 // Details: docs/code/ProcessStripeEvent.md
 public class ProcessStripeEvent
 {
-    public const string OutOfOrderReason = "out of order";
-    public const string RedundantReason = "redundant";
+    private const string OutOfOrderReason = "out of order";
+    private const string RedundantReason = "redundant";
     public const int MaxConcurrencyAttempts = 3;
 
     public static readonly IReadOnlyList<TimeSpan> TransientRetryDelays =

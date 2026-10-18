@@ -112,7 +112,7 @@ Stripe sometimes sends two events for one fact; the inbox can't catch that, the 
 
 ## History reasons
 
-Ignored rows carry the outcome as text: `out of order` or `redundant` (constants on the class, used by the tests). Applied rows have no reason, which is why the column is nullable.
+Ignored rows carry the outcome as text: `out of order` or `redundant` (private constants on the class). They are a contract: the history screen shows them. So the tests compare against the literal, not the constant, and a changed value fails them; the same choice as the worker's dead-letter codes (M3 review). Applied rows have no reason, which is why the column is nullable.
 
 ## What is not here yet
 
