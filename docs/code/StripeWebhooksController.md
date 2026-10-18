@@ -10,6 +10,30 @@ The 256 KB body limit comes from architecture section 8 and is applied with `[Re
 
 The Service Bus Basic message cap is also 256 KB, but it counts the body **and** the message headers. A body close to the limit passes the API and then fails to publish with `MessageSizeExceeded`, which answers `500` like any other publish failure. Task 1.4 kept the 256 KB limit instead of lowering it: real `payment_intent` events are a few KB, and any lower limit would be a made-up number. Section 8 of the architecture says the same.
 
+## Rate limit
+
+Task 3.6 put the ASP.NET Core rate limiter on the action with `[EnableRateLimiting(WebhookRateLimitOptions.PolicyName)]` (architecture section 8). The policy and `app.UseRateLimiter()` are in `Program.cs`. The limiter is middleware, so it rejects a request before MVC runs: the body is not read and the signature is not checked, so a flood of unsigned requests costs almost nothing, and those requests count toward the limit like any other.
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| Algorithm | Fixed window | What task 3.6 asks for, and the simplest to explain: a counter that resets every window. The cost: up to twice the limit gets through around a boundary (100 at 9.9 s and 100 at 10.1 s). A sliding window or token bucket would smooth that, which is not needed for a flood guard |
+| `PermitLimit` / `Window` | 100 per 10 s | Test-mode traffic is a few events per payment, so real deliveries stay far below it. Stripe resends on `429`, so a limit that is too low delays events instead of losing them |
+| Partition | One per client IP (`RemoteIpAddress`) | A single bucket for everyone would let anyone use up the budget and get Stripe's own deliveries rejected, while an unsigned request without a limiter costs only a failed HMAC. With one bucket per IP, a flood from one source only limits that source |
+| `QueueLimit` | 0 | A request over the limit is rejected at once instead of holding a connection open |
+| `RejectionStatusCode` | `429` | The middleware's default is `503`, which reads as the API being down |
+
+Behind the Container Apps ingress, `RemoteIpAddress` is the proxy's, so until the API trusts the ingress's `X-Forwarded-For` (`docs/pending.md`, task 4.9) every caller shares the proxy's bucket and the limit acts as a single one. That is no worse than a single partition, and becomes per-client with the forwarded headers. A request with no IP (as in `TestServer`) uses the empty key.
+
+A delivery rejected with `429` never reaches Service Bus, so it is not in the dead-letter. Stripe resends it, in the sandbox only three times over a few hours (architecture section 4), and after that it can only be resent from the Stripe dashboard.
+
+Only the webhook has the policy. The admin endpoints already require `X-Admin-Key`, and a global limiter would also limit `/health/live`, which the probes of task 4.7 call.
+
+`app.UseRouting()` is called explicitly before `app.UseRateLimiter()`. The limiter finds the policy in the endpoint's metadata, so it must run after routing has selected the endpoint. `WebApplication` adds routing on its own at the start of the pipeline, but making it explicit keeps a middleware added later from moving routing after the limiter and switching the limiter off without any error.
+
+The values come from the `WebhookRateLimit` configuration section (`appsettings.json`), validated on start, instead of constants. The reason is the tests: `FixedWindowRateLimiter` takes no `TimeProvider`, so a test can't move the clock, and with a real 10 s window a test could cross a window reset and become flaky. The tests set a limit of 1 or 2 and a 1 h window instead. The policy reads `IOptions<WebhookRateLimitOptions>` from `RequestServices` so that it gets the validated options, including the tests' overrides; that is one singleton lookup per request. The partitioned limiter keeps one `FixedWindowRateLimiter` per IP and drops idle ones, so the factory runs again for an IP after it has been idle.
+
+The rejection is not logged per request: a flood would become a flood of log lines. ASP.NET Core already reports rejections in the `aspnetcore.rate_limiting` metrics, which telemetry in M5 can use.
+
 ## `ReceiveAsync`
 
 ### Why the action has no parameters
@@ -71,7 +95,7 @@ With the defaults, a queue that does not answer holds the request for minutes. W
 
 ### Tests
 
-`tests/Payments.Api.Tests` runs the real pipeline with `WebApplicationFactory`, with the real `ReceiveStripeEvent`, and replaces `IEventPublisher` with a fake: one that records the calls (linked from `Payments.Application.Tests`), and one that throws `ServiceBusException`. The signature is computed by `StripeSignatureHelper`, linked from `Payments.Infrastructure.Tests` so both projects sign the same way. The tests cover: valid signature (`200`, one publish with the same ID and body), failing publisher (`500`), invalid signature, a body without a valid `id` (missing, empty, blank, not a string, not an object, not JSON), and an ID over 128 characters (`400`, nothing published). A last test blocks the publish, cancels the request from the client, and checks that a warning is logged, not an error. `TestServer` turns the client's cancellation into `RequestAborted`, so this is the same path as Stripe closing the connection. Since task 1.6 that warning comes from the `ReceiveStripeEvent` log category; the test's assertions did not change.
+`tests/Payments.Api.Tests` runs the real pipeline with `WebApplicationFactory`, with the real `ReceiveStripeEvent`, and replaces `IEventPublisher` with a fake: one that records the calls (linked from `Payments.Application.Tests`), and one that throws `ServiceBusException`. The signature is computed by `StripeSignatureHelper`, linked from `Payments.Infrastructure.Tests` so both projects sign the same way. The tests cover: valid signature (`200`, one publish with the same ID and body), failing publisher (`500`), invalid signature, a body without a valid `id` (missing, empty, blank, not a string, not an object, not JSON), and an ID over 128 characters (`400`, nothing published). A last test blocks the publish, cancels the request from the client, and checks that a warning is logged, not an error. `TestServer` turns the client's cancellation into `RequestAborted`, so this is the same path as Stripe closing the connection. Since task 1.6 that warning comes from the `ReceiveStripeEvent` log category; the test's assertions did not change. Task 3.6 added four rate limit tests, each with its own host and so its own limiter: signed requests over the limit get `429` and are not published; unsigned requests use up the limit, so a signed one after them gets `429`; a second client IP still gets through when the first used up its limit; and `/health/live` still answers `200` with the webhook limit used up. `TestServer` has no real connection, so `ClientIpStartupFilter` sets `RemoteIpAddress` from a test-only header.
 
 The same rules are also tested without HTTP in `tests/Payments.Application.Tests`. The API tests stay because they prove the status codes and the raw-body path through the real pipeline.
 
