@@ -1,4 +1,5 @@
 using Azure.Messaging.ServiceBus;
+using Microsoft.Extensions.Logging.Abstractions;
 using Payments.Application.DeadLetters;
 using Payments.Infrastructure.Messaging;
 using Testcontainers.ServiceBus;
@@ -25,7 +26,7 @@ public class ServiceBusDeadLetterQueueTests : IAsyncLifetime
         await DeadLetterAsync(client, "evt_first", "{\"id\":\"evt_first\"}");
         await DeadLetterAsync(client, "evt_second", "{\"id\":\"evt_second\"}", abandonReason: "database unreachable");
         await DeadLetterAsync(client, "evt_third", "{\"id\":\"evt_third\"}");
-        await using ServiceBusDeadLetterQueue deadLetterQueue = new(client, QueueName);
+        await using ServiceBusDeadLetterQueue deadLetterQueue = new(client, QueueName, NullLogger<ServiceBusDeadLetterQueue>.Instance);
 
         IReadOnlyList<DeadLetterMessage> before = await deadLetterQueue.PeekAsync(100, CancellationToken.None);
         DeadLetterMessage second = before.Single(message => message.MessageId == "evt_second");
@@ -56,15 +57,38 @@ public class ServiceBusDeadLetterQueueTests : IAsyncLifetime
         await using ServiceBusClient client = new(this.container.GetConnectionString());
         await DeadLetterAsync(client, "evt_first", "{\"id\":\"evt_first\"}");
         await DeadLetterAsync(client, "evt_second", "{\"id\":\"evt_second\"}");
-        await using ServiceBusDeadLetterQueue deadLetterQueue = new(client, QueueName);
+        await using ServiceBusDeadLetterQueue deadLetterQueue = new(client, QueueName, NullLogger<ServiceBusDeadLetterQueue>.Instance);
 
         string? reprocessed = await deadLetterQueue.ReprocessAsync(long.MaxValue, CancellationToken.None);
+        bool contains = await deadLetterQueue.ContainsAsync(long.MaxValue, CancellationToken.None);
         IReadOnlyList<DeadLetterMessage> after = await deadLetterQueue.PeekAsync(100, CancellationToken.None);
 
         Assert.Null(reprocessed);
+        Assert.False(contains);
         Assert.Equal(["evt_first", "evt_second"], after.Select(message => message.MessageId));
         await using ServiceBusReceiver mainReceiver = client.CreateReceiver(QueueName);
         Assert.Null(await mainReceiver.ReceiveMessageAsync(TimeSpan.FromSeconds(2)));
+    }
+
+    [Fact]
+    public async Task Contains_is_true_for_a_message_in_the_dead_letter_and_false_once_it_left()
+    {
+        await using ServiceBusClient client = new(this.container.GetConnectionString());
+        await DeadLetterAsync(client, "evt_first", "{\"id\":\"evt_first\"}");
+        await DeadLetterAsync(client, "evt_second", "{\"id\":\"evt_second\"}");
+        await using ServiceBusDeadLetterQueue deadLetterQueue = new(client, QueueName, NullLogger<ServiceBusDeadLetterQueue>.Instance);
+        IReadOnlyList<DeadLetterMessage> before = await deadLetterQueue.PeekAsync(100, CancellationToken.None);
+        long first = before[0].SequenceNumber;
+        long second = before[1].SequenceNumber;
+
+        bool containedBefore = await deadLetterQueue.ContainsAsync(first, CancellationToken.None);
+        await deadLetterQueue.ReprocessAsync(first, CancellationToken.None);
+        bool containedAfter = await deadLetterQueue.ContainsAsync(first, CancellationToken.None);
+        bool secondContained = await deadLetterQueue.ContainsAsync(second, CancellationToken.None);
+
+        Assert.True(containedBefore);
+        Assert.False(containedAfter);
+        Assert.True(secondContained);
     }
 
     private static async Task DeadLetterAsync(ServiceBusClient client, string messageId, string body, string? abandonReason = null)

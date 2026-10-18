@@ -9,7 +9,7 @@ The administrative API over the dead-letter of `payment-events` (architecture se
 | Endpoint | Key | Result |
 | --- | --- | --- |
 | `GET /api/dead-letters` | No | `200` with up to 100 dead-lettered messages, oldest first, without removing them |
-| `POST /api/dead-letters/{sequenceNumber}/reprocess` | `X-Admin-Key` | `204` when the message went back to the queue, `404` when it is not in the dead-letter, `401` without the right key |
+| `POST /api/dead-letters/{sequenceNumber}/reprocess` | `X-Admin-Key` | `204` when the message went back to the queue, `404` when it is not in the dead-letter, `409` when it is there but the scan couldn't receive it, `401` without the right key |
 
 ### Why only the POST needs the key
 
@@ -33,7 +33,8 @@ The `MessageId` is the `evt_` ID, and the same event can be in the dead-letter t
 The controller is an adapter, like the webhook controller: it calls a use case and maps the result to a status code, with no `try`/`catch` and no reference to Infrastructure (`ControllerDependencyTests`).
 
 - `ListDeadLetters` only asks the `IDeadLetterQueue` port for 100 messages. It exists because `CLAUDE.md` makes the controller call a use case, never a port.
-- `ReprocessDeadLetter` calls the port and turns its answer into `ReprocessDeadLetterResult` (`Reprocessed`, `NotFound`). It logs both outcomes: information with the sequence number and the `evt_` ID, warning for not found. The port returns the `MessageId` (or `null`) instead of a `bool` so that the log names the event, which is what an operator searches for.
+- `ReprocessDeadLetter` calls the port and turns its answer into `ReprocessDeadLetterResult` (`Reprocessed`, `NotFound`, `NotReached`). The port returns the `MessageId` (or `null`) instead of a `bool` so that the log names the event, which is what an operator searches for. On `null` it asks the port whether the message is still in the dead-letter (`ContainsAsync`, a peek): yes is `NotReached`, no is `NotFound` (see "Contains" in `docs/code/ServiceBusDeadLetterQueue.md`). It logs every outcome: information with the sequence number and the `evt_` ID, a warning for the other two.
+- `409 Conflict` for `NotReached`, because the message exists but is held by something else at the moment, and the same request can work later. `404` would tell the operator the message is gone while the list still shows it; `503` would blame the service, which is working.
 - A Service Bus failure is not caught. It leaves the action, ASP.NET Core logs it as an error and answers `500`. Unlike the webhook, where `500` is a contract with Stripe and the use case must return it on purpose, nobody relies on this status, and the use case has nothing better to do with the exception.
 
 ## `AdminKeyFilter`
@@ -50,8 +51,8 @@ Task 3.4 started with an `AuthenticationHandler` (scheme `AdminKey`) and `[Autho
 
 ## Tests
 
-`tests/Payments.Application.Tests/DeadLetters`: the list asks the port for 100; reprocess returns `Reprocessed` and logs the event ID, or `NotFound` and logs a warning. They use `FakeDeadLetterQueue`, which `tests/Payments.Api.Tests` links.
+`tests/Payments.Application.Tests/DeadLetters`: the list asks the port for 100; reprocess returns `Reprocessed` and logs the event ID, `NotFound` and logs a warning, or `NotReached` and logs a warning when the fake holds the message locked. They use `FakeDeadLetterQueue`, which `tests/Payments.Api.Tests` links.
 
-`tests/Payments.Api.Tests/DeadLetters/DeadLettersControllerTests` runs the real pipeline with `WebApplicationFactory` and the fake queue: the list without a key (`200`, nothing removed), reprocess with the key (`204`), an unknown sequence number (`404`), and a missing, empty, wrong or padded key (`401`, nothing reprocessed).
+`tests/Payments.Api.Tests/DeadLetters/DeadLettersControllerTests` runs the real pipeline with `WebApplicationFactory` and the fake queue: the list without a key (`200`, nothing removed), reprocess with the key (`204`), an unknown sequence number (`404`), a locked message (`409`, nothing removed), and a missing, empty, wrong or padded key (`401`, nothing reprocessed).
 
 The Service Bus side is covered by `ServiceBusDeadLetterQueueTests` (see its class document), and task 3.4 ran the done criterion through compose: a signed `customer.created` event dead-lettered as `InvalidEvent`, `401` with no key and with a wrong key, `204` with the key while the worker was stopped, `404` on a second call, an empty list, then the worker restarted, processed the event again and dead-lettered it with a new sequence number.

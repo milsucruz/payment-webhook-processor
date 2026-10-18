@@ -16,6 +16,14 @@ public class ReprocessDeadLetter
     public async Task<ReprocessDeadLetterResult> ExecuteAsync(long sequenceNumber, CancellationToken cancellationToken)
     {
         string? messageId = await this.deadLetterQueue.ReprocessAsync(sequenceNumber, cancellationToken);
+        if (messageId is null && await this.deadLetterQueue.ContainsAsync(sequenceNumber, cancellationToken))
+        {
+            this.logger.LogWarning(
+                "Dead-lettered message {SequenceNumber} is in the dead-letter but the scan could not receive it",
+                sequenceNumber);
+            return ReprocessDeadLetterResult.NotReached;
+        }
+
         if (messageId is null)
         {
             this.logger.LogWarning("Dead-lettered message {SequenceNumber} was not found", sequenceNumber);

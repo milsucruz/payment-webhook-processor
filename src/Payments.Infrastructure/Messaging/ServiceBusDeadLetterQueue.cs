@@ -1,4 +1,5 @@
 using Azure.Messaging.ServiceBus;
+using Microsoft.Extensions.Logging;
 using Payments.Application.DeadLetters;
 
 namespace Payments.Infrastructure.Messaging;
@@ -13,12 +14,14 @@ public sealed class ServiceBusDeadLetterQueue : IDeadLetterQueue, IAsyncDisposab
     private readonly ServiceBusClient client;
     private readonly string queueName;
     private readonly ServiceBusSender sender;
+    private readonly ILogger<ServiceBusDeadLetterQueue> logger;
 
-    public ServiceBusDeadLetterQueue(ServiceBusClient client, string queueName)
+    public ServiceBusDeadLetterQueue(ServiceBusClient client, string queueName, ILogger<ServiceBusDeadLetterQueue> logger)
     {
         this.client = client;
         this.queueName = queueName;
         this.sender = client.CreateSender(queueName);
+        this.logger = logger;
     }
 
     public async Task<IReadOnlyList<DeadLetterMessage>> PeekAsync(int maxMessages, CancellationToken cancellationToken)
@@ -92,8 +95,15 @@ public sealed class ServiceBusDeadLetterQueue : IDeadLetterQueue, IAsyncDisposab
                 others.Add(match);
             }
 
-            await Task.WhenAll(others.Select(message => AbandonQuietlyAsync(receiver, message)));
+            await Task.WhenAll(others.Select(message => this.AbandonQuietlyAsync(receiver, message)));
         }
+    }
+
+    public async Task<bool> ContainsAsync(long sequenceNumber, CancellationToken cancellationToken)
+    {
+        await using ServiceBusReceiver receiver = this.CreateDeadLetterReceiver();
+        ServiceBusReceivedMessage? message = await receiver.PeekMessageAsync(sequenceNumber, cancellationToken);
+        return message?.SequenceNumber == sequenceNumber;
     }
 
     public ValueTask DisposeAsync() => this.sender.DisposeAsync();
@@ -106,14 +116,18 @@ public sealed class ServiceBusDeadLetterQueue : IDeadLetterQueue, IAsyncDisposab
             PrefetchCount = 0,
         });
 
-    private static async Task AbandonQuietlyAsync(ServiceBusReceiver receiver, ServiceBusReceivedMessage message)
+    private async Task AbandonQuietlyAsync(ServiceBusReceiver receiver, ServiceBusReceivedMessage message)
     {
         try
         {
             await receiver.AbandonMessageAsync(message, cancellationToken: CancellationToken.None);
         }
-        catch (ServiceBusException)
+        catch (ServiceBusException exception)
         {
+            this.logger.LogWarning(
+                exception,
+                "Failed to abandon dead-lettered message {SequenceNumber}; it stays locked until its lock expires",
+                message.SequenceNumber);
         }
     }
 

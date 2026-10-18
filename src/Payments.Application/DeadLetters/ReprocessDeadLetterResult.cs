@@ -4,4 +4,5 @@ public enum ReprocessDeadLetterResult
 {
     Reprocessed,
     NotFound,
+    NotReached,
 }

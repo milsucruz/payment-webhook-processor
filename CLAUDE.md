@@ -112,7 +112,7 @@ dotnet run --project tools/Simulator -- pay                          # um pagame
 dotnet run --project tools/Simulator -- refund <pi_...> [centavos]   # sem valor, reembolso total
 dotnet run --project tools/Simulator -- replay [seed]                # reenvia cada evento do inbox duas vezes, embaralhado; precisa do compose de pé
 curl http://localhost:8080/api/dead-letters                          # lista a dead-letter sem remover; público
-curl -X POST http://localhost:8080/api/dead-letters/<sequenceNumber>/reprocess -H "X-Admin-Key: <ADMIN_API_KEY do .env>"   # 204, 404 ou 401
+curl -X POST http://localhost:8080/api/dead-letters/<sequenceNumber>/reprocess -H "X-Admin-Key: <ADMIN_API_KEY do .env>"   # 204, 404, 409 ou 401
 ```
 
 Atualize esta seção quando um comando mudar. Todos funcionam, exceto `pay` e `refund` do simulador, que ainda não rodaram contra o Stripe (sem chave de teste na tarefa 2.8; ver `docs/pending.md`).

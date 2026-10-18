@@ -2,7 +2,7 @@
 
 `src/Payments.Infrastructure/Messaging/ServiceBusDeadLetterQueue.cs`
 
-Implements the `IDeadLetterQueue` port (Application) over the dead-letter subqueue of `payment-events`: peek for the list, and reprocess one message by sequence number. The API registers it as a singleton with the API's `ServiceBusClient`. This document holds the detail that the code leaves out. Keep it in sync when the class changes.
+Implements the `IDeadLetterQueue` port (Application) over the dead-letter subqueue of `payment-events`: peek for the list, reprocess one message by sequence number, and check whether a sequence number is in the dead-letter. The API registers it as a singleton with the API's `ServiceBusClient` and a logger. This document holds the detail that the code leaves out. Keep it in sync when the class changes.
 
 ## Peek
 
@@ -18,7 +18,7 @@ Service Bus can't receive a specific message by sequence number. `ReceiveDeferre
 4. On a match: send a copy to `payment-events`, then complete the original.
 5. Always (`finally`): abandon every message held in step 2, and the match too if it wasn't completed (the send failed or the request was cancelled first), so they are back in the dead-letter.
 
-The abandons in step 5 run in parallel and each one swallows `ServiceBusException`. A failed abandon only means that message stays locked until its lock expires (60 s), and it must neither stop the other abandons nor turn a reprocess that already sent and completed into a `500`. The code review of task 3.4 found both problems in the first version, which abandoned one by one with no guard, and left the match locked for 60 s when the send failed.
+The abandons in step 5 run in parallel and each one catches `ServiceBusException` and logs it as a warning with the sequence number. A failed abandon only means that message stays locked until its lock expires (60 s), and it must neither stop the other abandons nor turn a reprocess that already sent and completed into a `500`. The code review of task 3.4 found both problems in the first version, which abandoned one by one with no guard, and left the match locked for 60 s when the send failed. The second review found that the first guard swallowed the exception with no log, so a burst of `409` answers after a dropped connection had nothing to explain it.
 
 Once the send has succeeded, the complete runs with `CancellationToken.None`. If the operator's request were cancelled between the two, the copy would be in the queue and the original back in the dead-letter, and the next click would send a second copy. Finishing the complete avoids that, and it takes milliseconds.
 
@@ -36,15 +36,24 @@ The class also removes the `AbandonReason` property from the copy. Otherwise a r
 
 The copy goes through its own `ServiceBusSender`, not through `IEventPublisher`. The publisher builds a message from an ID and a JSON string; the copy constructor keeps whatever the original carried, without the adapter having to know which properties matter.
 
+## Contains: telling "not reached" from "absent"
+
+A scan that ends without the match doesn't prove the message is gone. It may be locked by another scan, sit after the first 500, or be late in a slow receive that came back empty within 1 s. `ContainsAsync` answers the question the scan can't: it peeks one message from the sequence number asked for (`PeekMessageAsync(fromSequenceNumber)`) and checks that the number is the same, because a peek from `n` returns the first message at or after `n`. Peeking takes no lock and sees locked messages, so it works in exactly the cases where the scan fails.
+
+`ReprocessDeadLetter` calls it only after the scan returned `null`, and turns `true` into `NotReached` (`409`). The first version answered `404` in all of these cases; the second code review of task 3.4 found three ways to get a `404` for a message the list still showed. A race is harmless: if another request completes the message between the scan and the peek, the peek doesn't find it and the answer is `404`, which is then true.
+
 ### Known side effects
 
-- **Delivery count in the dead-letter.** Every message held and abandoned during a scan gets one more delivery. The dead-letter has no maximum delivery count, so nothing moves, but the count the list shows grows with each reprocess of another message. It is not used for any decision.
-- **Two reprocesses at the same time** may hide each other's messages: a message locked by one scan is invisible to the other, which can answer `404` for a message that is there. With a single operator this is accepted; the second click works once the first request finishes.
-- **More than 500 messages** before the one asked for: `404`. The alert fires at the first dead-lettered message, so the dead-letter is expected to stay small.
+- **Delivery count in the dead-letter.** Every message held and abandoned during a scan gets one more delivery. The dead-letter has no maximum delivery count, so nothing moves, but the count the list shows grows with each reprocess of another message. It is not used for any decision: the dead-letter reason already tells `MaxDeliveryCountExceeded` from a permanent error.
+- **Two reprocesses at the same time** may hide each other's messages: a message locked by one scan is invisible to the other, which answers `409`. The second click works once the first request finishes, or after 60 s if an abandon failed.
+- **More than 500 messages** before the one asked for: `409`, every time. The alert fires at the first dead-lettered message, so the dead-letter is expected to stay small.
 
 ## Tests
 
 `tests/Payments.IntegrationTests/Messaging/ServiceBusDeadLetterQueueTests` uses the emulator in Testcontainers (same image and `config.json` as compose):
 
 - Three messages dead-lettered with `InvalidEvent`, the second one first abandoned with an `AbandonReason`. Peek lists the three in order with reason, description and abandon reason. Reprocessing the second returns its `evt_` ID, the dead-letter keeps the other two, and the main queue has the copy with the same ID, body and content type, delivery count 1, no dead-letter reason and no `AbandonReason`.
-- An unknown sequence number returns `null`, the two messages are still in the dead-letter after the scan abandoned them, and nothing reaches the main queue.
+- An unknown sequence number returns `null` and `ContainsAsync` returns `false`, the two messages are still in the dead-letter after the scan abandoned them, and nothing reaches the main queue.
+- Two dead-lettered messages: `ContainsAsync` is `true` for the first, `false` after it is reprocessed, and `true` for the second. The `false` is the case the sequence number comparison exists for: a peek from the first number now returns the second message. Returning `message is not null` instead fails this test (mutation check in the second review of task 3.4).
+
+The concurrency case itself (a message locked by another receiver) has no integration test. A test that held the message with a second dead-letter receiver and expected the scan to miss it failed in 3 of 4 runs: the emulator delivered the locked message to the scan, which sent and completed it. In Azure Service Bus a locked message is not delivered to another receiver, so the emulator can't reproduce the case reliably; it is the kind of difference the emulator risk in section 14 of the architecture expects to be checked against the real namespace. The use case side (`NotReached` when the scan returns `null` and the peek finds the message) is covered by the unit tests in `docs/code/DeadLettersController.md`.

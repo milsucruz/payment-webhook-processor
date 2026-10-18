@@ -37,6 +37,7 @@ public class DeadLettersController : ControllerBase
         {
             ReprocessDeadLetterResult.Reprocessed => NoContent(),
             ReprocessDeadLetterResult.NotFound => NotFound(),
+            ReprocessDeadLetterResult.NotReached => Conflict(),
             _ => throw new UnreachableException(),
         };
     }

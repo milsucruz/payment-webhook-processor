@@ -55,6 +55,18 @@ public class DeadLettersControllerTests : IClassFixture<WebApplicationFactory<Pr
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
+    [Fact]
+    public async Task Reprocess_of_a_message_the_scan_cannot_receive_returns_409()
+    {
+        this.queue.Messages.Add(FakeDeadLetterQueue.Message(7, "evt_1PtTest"));
+        this.queue.Locked.Add(7);
+
+        HttpResponseMessage response = await this.CreateClient().SendAsync(ReprocessRequest(7, AdminKey));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Single(this.queue.Messages);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
