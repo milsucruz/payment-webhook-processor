@@ -9,9 +9,9 @@ public class ProcessStripeEvent
 {
     private const string OutOfOrderReason = "out of order";
     private const string RedundantReason = "redundant";
-    public const int MaxConcurrencyAttempts = 3;
+    private const int MaxConcurrencyAttempts = 3;
 
-    public static readonly IReadOnlyList<TimeSpan> TransientRetryDelays =
+    private static readonly IReadOnlyList<TimeSpan> transientRetryDelays =
         [TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5)];
 
     private readonly IPaymentStore paymentStore;
@@ -60,14 +60,14 @@ public class ProcessStripeEvent
             }
             catch (Exception exception) when (this.transientErrorDetector.IsTransient(exception))
             {
-                if (transientRetries == TransientRetryDelays.Count)
+                if (transientRetries == transientRetryDelays.Count)
                 {
-                    string reason = $"Event {paymentEvent.EventId} for payment {paymentEvent.PaymentIntentId} failed with a transient error on all {TransientRetryDelays.Count + 1} attempts: {exception.Message}";
+                    string reason = $"Event {paymentEvent.EventId} for payment {paymentEvent.PaymentIntentId} failed with a transient error on all {transientRetryDelays.Count + 1} attempts: {exception.Message}";
                     this.logger.LogWarning(exception, "Transient error: {Reason}", reason);
                     return new ProcessStripeEventResult(ProcessStripeEventOutcome.TransientFailure, reason);
                 }
 
-                TimeSpan delay = TransientRetryDelays[transientRetries];
+                TimeSpan delay = transientRetryDelays[transientRetries];
                 transientRetries++;
                 this.logger.LogWarning(
                     exception,
@@ -76,7 +76,7 @@ public class ProcessStripeEvent
                     paymentEvent.EventId,
                     delay,
                     transientRetries,
-                    TransientRetryDelays.Count);
+                    transientRetryDelays.Count);
                 await Task.Delay(delay, this.timeProvider, cancellationToken);
                 continue;
             }
