@@ -20,9 +20,9 @@ Service Bus has no "receive the message with this ID". `ReceiveDeferredMessageAs
 2. If the batch has the message with the requested sequence number, send a copy to `payment-events` and complete the original.
 3. If not, keep the batch locked and receive the next one, so the same messages don't come back.
 4. An empty batch means the message is not there (or another call holds its lock): return `null`, which the API turns into `404`.
-5. In a `finally`, abandon every message that was received and is not the match, so they are free right away instead of after the 60 s lock.
+5. In a `finally`, abandon every message that was received and is not the match, all at once with `Task.WhenAll`, so they are free right away instead of after the 60 s lock.
 
-The abandons use `CancellationToken.None`: if the request was aborted, the locks still have to be released.
+The abandons use `CancellationToken.None`: if the request was aborted, the locks still have to be released. A `ServiceBusException` from an abandon is swallowed: it usually means the lock was already lost, which frees the message anyway, and letting it escape from the `finally` would turn a reprocess that already sent and completed its message into a `500` (found in code review).
 
 ### Why the sequence number and not the event ID
 
@@ -34,7 +34,7 @@ The copy is sent before the original is completed. Basic has no transactions, so
 
 ### What the copy carries
 
-A new `ServiceBusMessage` with the same body, `MessageId` and `ContentType`, the same shape `ServiceBusEventPublisher` sends. The `ServiceBusMessage(ServiceBusReceivedMessage)` constructor would also copy application properties, which nothing sets today, so the explicit copy shows exactly what the worker receives. The copy starts with `DeliveryCount` 1 and no dead-letter reason (checked by the integration test).
+The copy goes through `IEventPublisher` (the API's `ServiceBusEventPublisher`) with the original event ID and body, so a reprocessed message has exactly the shape of a webhook publish, and the API keeps one sender to the queue. The first version built the message by hand with a second sender; code review pointed out that the two shapes could drift. The `ServiceBusMessage(ServiceBusReceivedMessage)` constructor was not used either: it would carry over whatever application properties the original had. The copy starts with `DeliveryCount` 1 and no dead-letter reason (checked by the integration test).
 
 ### Cost and limits
 
@@ -48,3 +48,11 @@ An unknown sequence number costs one empty receive, 2 s, before the `404`.
 
 - Three dead-lettered messages: peek lists all three with reason and description; reprocessing the middle one returns its event ID, the dead-letter keeps the other two, and the main queue has the copy with the same ID, body and content type.
 - An unknown sequence number returns `null`, and a reprocess right after it finds its message at once, which shows the abandon released the locks.
+
+## Known gaps, accepted
+
+Found in code review, not changed:
+
+- **Concurrent reprocess calls can get a false `404`.** A call that locked a batch hides those messages from another call until it abandons them. One operator clicks one button at a time, so the button can just be pressed again.
+- **A failed complete after a successful send answers `500`.** The copy is in the queue and the original stays in the dead-letter; retrying sends another copy. That is the at-least-once trade-off of "send, then complete", and the inbox turns the extra copies into duplicates.
+- **A very large dead-letter.** Locks of early batches can expire during a long scan. Tracked with the `DeliveryCount` question in `docs/pending.md`.

@@ -1,23 +1,24 @@
 using Azure.Messaging.ServiceBus;
 using Payments.Application.DeadLetters;
+using Payments.Application.Messaging;
 
 namespace Payments.Infrastructure.Messaging;
 
 // Details: docs/code/ServiceBusDeadLetterQueue.md
-public sealed class ServiceBusDeadLetterQueue : IDeadLetterQueue, IAsyncDisposable
+public sealed class ServiceBusDeadLetterQueue : IDeadLetterQueue
 {
     private const int ReceiveBatchSize = 50;
     private static readonly TimeSpan receiveWaitTime = TimeSpan.FromSeconds(2);
 
     private readonly ServiceBusClient client;
     private readonly string queueName;
-    private readonly ServiceBusSender sender;
+    private readonly IEventPublisher eventPublisher;
 
-    public ServiceBusDeadLetterQueue(ServiceBusClient client, string queueName)
+    public ServiceBusDeadLetterQueue(ServiceBusClient client, string queueName, IEventPublisher eventPublisher)
     {
         this.client = client;
         this.queueName = queueName;
-        this.sender = client.CreateSender(queueName);
+        this.eventPublisher = eventPublisher;
     }
 
     public async Task<IReadOnlyList<DeadLetter>> PeekAsync(int maxMessages, CancellationToken cancellationToken)
@@ -72,26 +73,27 @@ public sealed class ServiceBusDeadLetterQueue : IDeadLetterQueue, IAsyncDisposab
                     continue;
                 }
 
-                ServiceBusMessage copy = new(match.Body)
-                {
-                    MessageId = match.MessageId,
-                    ContentType = match.ContentType,
-                };
-                await this.sender.SendMessageAsync(copy, cancellationToken);
+                await this.eventPublisher.PublishAsync(match.MessageId, match.Body.ToString(), cancellationToken);
                 await receiver.CompleteMessageAsync(match, cancellationToken);
                 return match.MessageId;
             }
         }
         finally
         {
-            foreach (ServiceBusReceivedMessage message in skipped)
-            {
-                await receiver.AbandonMessageAsync(message, cancellationToken: CancellationToken.None);
-            }
+            await Task.WhenAll(skipped.Select(message => AbandonAsync(receiver, message)));
         }
     }
 
-    public ValueTask DisposeAsync() => this.sender.DisposeAsync();
+    private static async Task AbandonAsync(ServiceBusReceiver receiver, ServiceBusReceivedMessage message)
+    {
+        try
+        {
+            await receiver.AbandonMessageAsync(message, cancellationToken: CancellationToken.None);
+        }
+        catch (ServiceBusException)
+        {
+        }
+    }
 
     private ServiceBusReceiver CreateDeadLetterReceiver() =>
         this.client.CreateReceiver(this.queueName, new ServiceBusReceiverOptions

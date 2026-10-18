@@ -25,7 +25,8 @@ public class ServiceBusDeadLetterQueueTests : IAsyncLifetime
         await DeadLetterAsync(client, "evt_first", "{\"id\":\"evt_first\"}");
         await DeadLetterAsync(client, "evt_second", "{\"id\":\"evt_second\"}");
         await DeadLetterAsync(client, "evt_third", "{\"id\":\"evt_third\"}");
-        await using ServiceBusDeadLetterQueue deadLetterQueue = new(client, QueueName);
+        await using ServiceBusEventPublisher publisher = new(client, QueueName);
+        ServiceBusDeadLetterQueue deadLetterQueue = new(client, QueueName, publisher);
 
         IReadOnlyList<DeadLetter> before = await deadLetterQueue.PeekAsync(100, CancellationToken.None);
         DeadLetter second = Assert.Single(before, deadLetter => deadLetter.EventId == "evt_second");
@@ -54,7 +55,8 @@ public class ServiceBusDeadLetterQueueTests : IAsyncLifetime
         await using ServiceBusClient client = new(this.container.GetConnectionString());
         await DeadLetterAsync(client, "evt_first", "{\"id\":\"evt_first\"}");
         await DeadLetterAsync(client, "evt_second", "{\"id\":\"evt_second\"}");
-        await using ServiceBusDeadLetterQueue deadLetterQueue = new(client, QueueName);
+        await using ServiceBusEventPublisher publisher = new(client, QueueName);
+        ServiceBusDeadLetterQueue deadLetterQueue = new(client, QueueName, publisher);
         IReadOnlyList<DeadLetter> before = await deadLetterQueue.PeekAsync(100, CancellationToken.None);
 
         string? missing = await deadLetterQueue.ReprocessAsync(before.Max(deadLetter => deadLetter.SequenceNumber) + 1000, CancellationToken.None);

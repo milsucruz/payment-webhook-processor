@@ -18,17 +18,17 @@ public sealed class RequireAdminKeyAttribute : TypeFilterAttribute
 
     private sealed class AdminKeyFilter : IAuthorizationFilter
     {
-        private readonly byte[] expectedKey;
+        private readonly byte[] expectedKeyHash;
 
         public AdminKeyFilter(IOptions<AdminOptions> options)
         {
-            this.expectedKey = Encoding.UTF8.GetBytes(options.Value.ApiKey);
+            this.expectedKeyHash = SHA256.HashData(Encoding.UTF8.GetBytes(options.Value.ApiKey));
         }
 
         public void OnAuthorization(AuthorizationFilterContext context)
         {
-            byte[] providedKey = Encoding.UTF8.GetBytes(context.HttpContext.Request.Headers[HeaderName].ToString());
-            if (!CryptographicOperations.FixedTimeEquals(providedKey, this.expectedKey))
+            byte[] providedKeyHash = SHA256.HashData(Encoding.UTF8.GetBytes(context.HttpContext.Request.Headers[HeaderName].ToString()));
+            if (!CryptographicOperations.FixedTimeEquals(providedKeyHash, this.expectedKeyHash))
             {
                 context.Result = new UnauthorizedResult();
             }

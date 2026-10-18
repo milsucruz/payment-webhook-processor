@@ -47,7 +47,8 @@ builder.Services.AddSingleton<IEventPublisher>(serviceProvider => new ServiceBus
 
 builder.Services.AddSingleton<IDeadLetterQueue>(serviceProvider => new ServiceBusDeadLetterQueue(
     serviceProvider.GetRequiredService<ServiceBusClient>(),
-    serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value.EventsQueueName));
+    serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value.EventsQueueName,
+    serviceProvider.GetRequiredService<IEventPublisher>()));
 
 builder.Services.AddSingleton<ReceiveStripeEvent>();
 builder.Services.AddSingleton<ListDeadLetters>();

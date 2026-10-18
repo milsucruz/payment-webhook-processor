@@ -20,7 +20,7 @@ ASP.NET Core authentication (`AddAuthentication` with a custom `AuthenticationHa
 
 ## Constant-time comparison
 
-`CryptographicOperations.FixedTimeEquals` compares the bytes without stopping at the first difference, so the response time doesn't reveal how many leading characters were right. It still returns at once when the lengths differ, which reveals the key length; with a random key of fixed length, that's acceptable.
+Both the configured key and the header are hashed with SHA-256, and `CryptographicOperations.FixedTimeEquals` compares the two hashes without stopping at the first difference, so the response time doesn't reveal how many leading characters were right. Hashing first makes both sides 32 bytes: `FixedTimeEquals` returns at once when the lengths differ, which on the raw keys would reveal the key length (found in code review). The hash is not for storage; the key is still read from configuration.
 
 No trimming: `"key "` is a different key (covered by a test).
 
