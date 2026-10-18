@@ -82,7 +82,7 @@ Choices behind it:
 - **Logged, not hidden.** A rollback failure on a connection that is still alive would be a real problem, so it leaves a Warning with the exception instead of disappearing.
 - **In the use case, not in `PaymentStore`.** The store could swallow errors in its own dispose, but then the rule would live in Infrastructure, hold only for that store, and hide the failure from the use case's log. Here it holds for any `IPaymentStore`. The rule in `CLAUDE.md` keeps `try`/`catch` out of controllers and the worker, not out of use cases.
 - **Only after a failure.** When the attempt returns a result, the transaction is disposed normally. After a commit the dispose does nothing. After `Conflict`, `Duplicate` or `ConcurrencyConflict` it rolls back, and if that throws, the exception reaches the worker and the message is abandoned and delivered again, which is safe: nothing was committed.
-- **The same `DbContext` for the retry.** The task 3.1 item asked whether a broken connection would need a new scope per retry. It doesn't: in the task 3.7 test, the next `BeginTransactionAsync` on the same context opens a new connection and the attempt commits.
+- **The same `DbContext` for the retry.** The task 3.1 item asked whether a broken connection would need a new scope per retry. It doesn't: in the task 3.7 test, the next `BeginTransactionAsync` on the same context opens a new connection and the attempt commits. That holds even when the dispose threw: EF Core's `RelationalTransaction.DisposeAsync` then stops before clearing its state, so `Database.CurrentTransaction` is still set when the retry starts (seen in 1 of 8 runs of a throwaway loop in the task 3.7 session, raised by the code review), and the retry still opened a new transaction and committed. The second test pins that state on every run.
 
 ## Why the inbox comes after the read
 
@@ -157,10 +157,10 @@ The transient retry over a real broken connection (task 3.7) is checked by `test
 - `PausingPaymentStore` wraps `PaymentStore`, pauses the container (`PauseAsync`, which freezes the process, as a paused or unreachable database looks from the client) right after the first read, with the transaction open, and unpauses it when the next attempt opens its transaction. So the failure always lands between the read and the first write, and the test needs no sleep.
 - The connection string sets `Command Timeout=3`, so the write after the pause fails in about 8 s (the timeout plus SqlClient's attention wait) instead of more than 30 s. Production keeps the default.
 - `Transient_error_from_a_paused_database_is_retried_and_a_later_attempt_commits` is the plain case. Its dispose is SqlClient's own, which throws on some runs and not on others (see "Rollback after a failed attempt").
-- `Retry_still_happens_when_the_rollback_of_the_broken_transaction_throws` makes that case certain: the store's first transaction calls the real `RollbackAsync` on dispose, which throws `InvalidOperationException` every time, and the test asserts it threw once.
+- `Retry_still_happens_when_the_rollback_of_the_broken_transaction_throws` makes that case certain: the store's first transaction calls the real `RollbackAsync` on dispose, which throws `InvalidOperationException` every time, and doesn't call EF Core's dispose afterwards, so `Database.CurrentTransaction` stays set, as when SqlClient's own dispose throws. The test asserts that this happened once. The first version disposed in a `finally`, which cleared that state, so the test didn't cover the real failure (code review).
 - Both assert `Applied`, two transactions, and one payment, inbox row and history row.
 - With the `await using` back in place of `DisposeFailedTransactionAsync`, the second test fails every time and the first one on some runs, both with the `InvalidOperationException` (checked in the task 3.7 session, which is how the problem was found).
-- The class keeps its own container instead of sharing one: pausing a shared container would stop the other tests.
+- Each test starts its own container in `InitializeAsync` (xUnit builds the class once per test), as in `ProcessStripeEventConcurrencyTests`, instead of using `WorkerFixture`'s: pausing a shared container would stop the tests that use it.
 
 ### Property test
 

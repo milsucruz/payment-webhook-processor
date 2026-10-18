@@ -62,14 +62,14 @@ public class ProcessStripeEventBrokenConnectionTests : IAsyncLifetime
     private async Task ProcessWithPauseAndAssert(bool rollBackOnDispose, int expectedRollbackFailures)
     {
         await using PaymentsDbContext processingContext = this.CreateDbContext();
-        PausingPaymentStore store = new(new PaymentStore(processingContext), this.container, rollBackOnDispose);
+        PausingPaymentStore store = new(processingContext, this.container, rollBackOnDispose);
         ProcessStripeEvent processStripeEvent = new(store, new SqlTransientErrorDetector(), new NoFaultInjector(), TimeProvider.System, NullLogger<ProcessStripeEvent>.Instance);
 
         ProcessStripeEventResult result = await processStripeEvent.ExecuteAsync(Payload, CancellationToken.None);
 
         Assert.Equal(ProcessStripeEventOutcome.Applied, result.Outcome);
         Assert.Equal(2, store.Transactions);
-        Assert.Equal(expectedRollbackFailures, store.RollbackFailures);
+        Assert.Equal(expectedRollbackFailures, store.RollbackFailuresWithTransactionLeftOpen);
 
         await using PaymentsDbContext dbContext = this.CreateDbContext();
         Payment payment = await dbContext.Payments.SingleAsync(payment => payment.PaymentIntentId == PaymentIntentId);

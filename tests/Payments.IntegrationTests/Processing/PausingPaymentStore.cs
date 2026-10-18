@@ -1,26 +1,29 @@
 using Microsoft.EntityFrameworkCore.Storage;
 using Payments.Application.Processing;
 using Payments.Domain;
+using Payments.Infrastructure.Persistence;
 using Testcontainers.MsSql;
 
 namespace Payments.IntegrationTests.Processing;
 
 public sealed class PausingPaymentStore : IPaymentStore
 {
-    private readonly IPaymentStore inner;
+    private readonly PaymentStore inner;
+    private readonly PaymentsDbContext dbContext;
     private readonly MsSqlContainer container;
     private readonly bool rollBackOnDispose;
 
-    public PausingPaymentStore(IPaymentStore inner, MsSqlContainer container, bool rollBackOnDispose)
+    public PausingPaymentStore(PaymentsDbContext dbContext, MsSqlContainer container, bool rollBackOnDispose)
     {
-        this.inner = inner;
+        this.inner = new PaymentStore(dbContext);
+        this.dbContext = dbContext;
         this.container = container;
         this.rollBackOnDispose = rollBackOnDispose;
     }
 
     public int Transactions { get; private set; }
 
-    public int RollbackFailures { get; private set; }
+    public int RollbackFailuresWithTransactionLeftOpen { get; private set; }
 
     public async Task<IAsyncDisposable> BeginTransactionAsync(CancellationToken cancellationToken)
     {
@@ -84,14 +87,14 @@ public sealed class PausingPaymentStore : IPaymentStore
             {
                 await this.transaction.RollbackAsync();
             }
-            catch (InvalidOperationException)
+            catch (Exception)
             {
-                this.store.RollbackFailures++;
+                if (this.store.dbContext.Database.CurrentTransaction is not null)
+                {
+                    this.store.RollbackFailuresWithTransactionLeftOpen++;
+                }
+
                 throw;
-            }
-            finally
-            {
-                await this.transaction.DisposeAsync();
             }
         }
     }
