@@ -29,6 +29,10 @@ jobs:
       - name: Build
         run: dotnet build --no-restore --configuration Release
 
-      # Integration tests need Docker and join CI in task 3.5.
-      - name: Test
+      - name: Unit tests
         run: dotnet test --no-build --configuration Release --filter "FullyQualifiedName!~Payments.IntegrationTests" --logger "console;verbosity=normal"
+
+      # SQL Server and the Service Bus emulator in Docker; a hung container fails the step instead of the 6 h job limit.
+      - name: Integration tests
+        timeout-minutes: 15
+        run: dotnet test tests/Payments.IntegrationTests --no-build --configuration Release --logger "console;verbosity=normal"
