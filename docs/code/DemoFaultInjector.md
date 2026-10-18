@@ -51,3 +51,7 @@ Unit tests: `tests/Payments.Infrastructure.Tests/Faults/DemoFaultInjectorTests.c
 End to end, with `docker compose up -d`, `stripe listen` and `stripe trigger payment_intent.succeeded ... --add "payment_intent:metadata[demo_fault]=transient"`: both events of the payment logged the injected fault on attempts 1 and 2, a retry after 200 ms and 1 s, and then `Applied` and `IgnoredOutOfOrder`. The payment ended paid, with two inbox rows. With `=poison`: each event logged the fault on attempt 1 five times, a throwaway peek found both in the dead-letter with `DeliveryCount=5` and `MaxDeliveryCountExceeded`, and the database had no row for that payment. `slow` was checked only by the unit test.
 
 The integration test of the poison message with Testcontainers is task 3.5.
+
+## Refunds of a faulty payment (M3 review)
+
+For `charge.refunded`, `data.object` is the charge, so the parser reads the charge's metadata. Checked in the M3 review with `stripe trigger payment_intent.succeeded --add "payment_intent:metadata[demo_fault]=metadata_check"` and `stripe charges list --limit 1`: the charge the PaymentIntent created carries `"demo_fault": "metadata_check"`. Stripe copies the PaymentIntent's metadata to the charge when it creates the charge, so a refund of a `poison` payment is also poison. A change to the PaymentIntent's metadata after the charge exists is not copied.
