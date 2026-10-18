@@ -18,7 +18,7 @@ Each test isolates itself instead of getting fresh containers:
 - **An empty queue to start.** `InitializeAsync` drains the queue and its dead-letter in receive-and-delete mode, and keeps draining until a peek of both comes back empty. A receive can't see a message that is still locked from an earlier test; the peek can, so the purge waits for it instead of leaving it for the next test (found in code review).
 - **Its own worker.** Each test starts a host and stops it before asserting, so no handler is still running and the logs belong to that test. The fixture keeps every host it started, and the test's `DisposeAsync` stops them too, so a test that fails before its own stop doesn't leave a worker holding a lock (found in code review).
 
-The other integration classes (publisher, dead-letter queue, concurrency) keep their own containers: two of them read "the" message of the queue and the third counts rows over the whole database. See `docs/pending.md`.
+The other integration classes (publisher, dead-letter queue, concurrency) keep their own containers: two of them read "the" message of the queue and the third counts rows over the whole database. Sharing them would mean filtering by ID in each; the M3 review dropped it because the whole suite ran in 1.4 min in CI. `ProcessStripeEventBrokenConnectionTests` (task 3.7) can never share: it pauses its SQL Server.
 
 ## The worker host
 
@@ -32,7 +32,7 @@ The logger provider is optional. `CollectingLoggerProvider` keeps every log mess
 - `WaitUntilQueueIsEmptyAsync` peeks the queue every 200 ms until it is empty. A peek also returns locked messages, so an empty peek means every message was completed or dead-lettered, including a redelivery after an abandon.
 - `PeekDeadLetterAsync` peeks the dead-letter every 200 ms until a message is there.
 
-Both give up after 150 s. The poison scenario failed once in 13 local runs of the whole suite after 60 s, which is the lock duration: most likely one abandon was lost under load and the delivery waited for its lock to expire. That only delays the scenario: the message still reaches the dead-letter after 5 deliveries. So the wait is above one lock duration (item in `docs/pending.md`).
+Both give up after 150 s. The poison scenario failed once in 13 local runs of the whole suite after 60 s, which is the lock duration: most likely one abandon was lost under load and the delivery waited for its lock to expire. That only delays the scenario: the message still reaches the dead-letter after 5 deliveries. So the wait is above one lock duration. The cause was never proven and the failure never came back: the 15 CI runs since task 3.5 and the local runs of tasks 3.6 and 3.7 all passed. The second M3 review dropped the investigation, since it could not be reproduced. The limit to know: 150 s covers up to two lost abandons (60 s each), and a third would fail the test.
 
 ## Why the dead-letter is peeked, not received
 

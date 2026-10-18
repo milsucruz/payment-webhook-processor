@@ -16,7 +16,7 @@ The adapter between the `payment-events` queue and `ProcessStripeEvent` (see `do
 | `Duplicate` | Complete | The event was already processed; nothing was written (section 6) |
 | `InvalidEvent` | Dead-letter, reason `InvalidEvent` | Permanent error: the body is unreadable or the type is unsupported, so every delivery would fail the same way (section 6). See below |
 | `Conflict` | Dead-letter, reason `ImpossibleConflict` | Permanent error: the event contradicts a recorded fact, and no retry changes that (section 6). See below |
-| `ConcurrencyConflict` | Abandon | The use case already retried from the read `ProcessStripeEvent.MaxConcurrencyAttempts` times (task 2.6). Losing that many races in a row is unlikely but not a broken assumption, so the message goes back for a later delivery |
+| `ConcurrencyConflict` | Abandon | The use case already retried from the read 3 times (`MaxConcurrencyAttempts`) (task 2.6). Losing that many races in a row is unlikely but not a broken assumption, so the message goes back for a later delivery |
 | `TransientFailure` | Abandon | The use case already made 1 attempt plus 3 retries over about 6 s (task 3.1, `docs/code/ProcessStripeEvent.md`). The database is still unreachable, so the message goes back and Service Bus delivers it again, up to 5 times. Not a permanent error |
 
 `CompleteMessageAsync` only runs after `ExecuteAsync` returns, and `ExecuteAsync` only returns those outcomes after the commit. If the worker dies between the two, the message comes back and the inbox turns it into a `Duplicate`.

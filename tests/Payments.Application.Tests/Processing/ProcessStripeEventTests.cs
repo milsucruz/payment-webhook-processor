@@ -188,13 +188,13 @@ public class ProcessStripeEventTests
     {
         string payload = ReadFixture("payment_intent.succeeded.json");
         PaymentEvent paymentEvent = StripeEventParser.Parse(payload);
-        this.store.ConcurrencyConflictsToReport = ProcessStripeEvent.MaxConcurrencyAttempts;
+        this.store.ConcurrencyConflictsToReport = 3;
 
         ProcessStripeEventResult result = await this.Process(payload);
 
         Assert.Equal(ProcessStripeEventOutcome.ConcurrencyConflict, result.Outcome);
         Assert.Contains(paymentEvent.EventId, result.Reason, StringComparison.Ordinal);
-        Assert.Equal(ProcessStripeEvent.MaxConcurrencyAttempts, this.store.TransactionsStarted);
+        Assert.Equal(3, this.store.TransactionsStarted);
         Assert.Equal(0, this.store.Commits);
         Assert.Empty(this.store.Payments);
         Assert.Empty(this.store.InboxEvents);
@@ -226,7 +226,7 @@ public class ProcessStripeEventTests
     {
         string payload = ReadFixture("payment_intent.succeeded.json");
         PaymentEvent paymentEvent = StripeEventParser.Parse(payload);
-        for (int attempt = 0; attempt <= ProcessStripeEvent.TransientRetryDelays.Count; attempt++)
+        for (int attempt = 0; attempt < 4; attempt++)
         {
             this.store.CommitExceptions.Enqueue(new TransientTestException());
         }
@@ -279,12 +279,12 @@ public class ProcessStripeEventTests
     {
         string payload = ReadFixture("payment_intent.succeeded.json");
         this.store.CommitExceptions.Enqueue(new TransientTestException());
-        this.store.ConcurrencyConflictsToReport = ProcessStripeEvent.MaxConcurrencyAttempts - 1;
+        this.store.ConcurrencyConflictsToReport = 2;
 
         ProcessStripeEventResult result = await this.ProcessThroughDelays(payload, TimeSpan.FromMilliseconds(200));
 
         Assert.Equal(new ProcessStripeEventResult(ProcessStripeEventOutcome.Applied), result);
-        Assert.Equal(1 + ProcessStripeEvent.MaxConcurrencyAttempts, this.store.TransactionsStarted);
+        Assert.Equal(4, this.store.TransactionsStarted);
         Assert.Equal(1, this.store.Commits);
     }
 

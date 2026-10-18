@@ -49,7 +49,7 @@ Choices behind it:
 
 ## Transient errors
 
-A transient error is a failure that a later attempt can fix: the database is restarting, paused, throttling, or the network dropped (glossary, section 1). `ExecuteAsync` catches an exception from an attempt only when `ITransientErrorDetector.IsTransient` says so, waits, and runs the attempt again from step 2, in a new transaction (section 6: 1 attempt plus 3 retries, waiting 200 ms, 1 s and 5 s, in `TransientRetryDelays`).
+A transient error is a failure that a later attempt can fix: the database is restarting, paused, throttling, or the network dropped (glossary, section 1). `ExecuteAsync` catches an exception from an attempt only when `ITransientErrorDetector.IsTransient` says so, waits, and runs the attempt again from step 2, in a new transaction (section 6: 1 attempt plus 3 retries, waiting 200 ms, 1 s and 5 s, in `transientRetryDelays`).
 
 | Attempt result | What happens | Log |
 | --- | --- | --- |
@@ -124,9 +124,11 @@ Two different things, both in the glossary (section 1):
 
 Stripe sometimes sends two events for one fact; the inbox can't catch that, the state machine records it as redundant (section 6).
 
-## History reasons
+## History reasons and retry limits
 
 Ignored rows carry the outcome as text: `out of order` or `redundant` (private constants on the class). They are a contract: the history screen shows them. So the tests compare against the literal, not the constant, and a changed value fails them; the same choice as the worker's dead-letter codes (M3 review). Applied rows have no reason, which is why the column is nullable.
+
+`MaxConcurrencyAttempts` and `transientRetryDelays` are private for the same reason (second M3 review): 3 attempts (task 2.6) and the 200 ms, 1 s and 5 s delays (section 6) are decisions, and a test that read the constant would still pass if someone changed the value. The tests write `3`, `4` (1 attempt plus 3 retries) and the three delays as literals.
 
 ## What is not here yet
 
