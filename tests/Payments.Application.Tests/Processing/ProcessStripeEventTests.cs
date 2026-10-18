@@ -121,7 +121,7 @@ public class ProcessStripeEventTests
         Assert.Equal(TransitionOutcome.Redundant, Assert.Single(this.store.InboxEvents).Outcome);
         PaymentHistoryEntry entry = Assert.Single(this.store.History);
         Assert.False(entry.Applied);
-        Assert.Equal(ProcessStripeEvent.RedundantReason, entry.Reason);
+        Assert.Equal("redundant", entry.Reason);
         Assert.Equal("evt_seeded", this.store.Payments[paymentEvent.PaymentIntentId].LastEventId);
     }
 
@@ -141,7 +141,7 @@ public class ProcessStripeEventTests
         Assert.Equal(PaymentStatus.Paid, entry.FromStatus);
         Assert.Equal(PaymentStatus.Created, entry.ToStatus);
         Assert.False(entry.Applied);
-        Assert.Equal(ProcessStripeEvent.OutOfOrderReason, entry.Reason);
+        Assert.Equal("out of order", entry.Reason);
         Assert.Equal(1, this.store.Commits);
     }
 
