@@ -107,8 +107,40 @@ public class ProcessStripeEvent
     {
         await this.faultInjector.InjectAsync(paymentEvent, attempt, cancellationToken);
         DateTimeOffset processedAt = this.timeProvider.GetUtcNow();
-        await using IAsyncDisposable transaction = await this.paymentStore.BeginTransactionAsync(cancellationToken);
+        IAsyncDisposable transaction = await this.paymentStore.BeginTransactionAsync(cancellationToken);
+        ProcessStripeEventResult result;
+        try
+        {
+            result = await this.DecideAndSaveAsync(paymentEvent, payload, processedAt, cancellationToken);
+        }
+        catch
+        {
+            await this.DisposeFailedTransactionAsync(transaction, paymentEvent);
+            throw;
+        }
 
+        await transaction.DisposeAsync();
+        return result;
+    }
+
+    private async Task DisposeFailedTransactionAsync(IAsyncDisposable transaction, PaymentEvent paymentEvent)
+    {
+        try
+        {
+            await transaction.DisposeAsync();
+        }
+        catch (Exception exception)
+        {
+            this.logger.LogWarning(
+                exception,
+                "Rollback failed after a failed attempt on payment {PaymentIntentId} for event {EventId}",
+                paymentEvent.PaymentIntentId,
+                paymentEvent.EventId);
+        }
+    }
+
+    private async Task<ProcessStripeEventResult> DecideAndSaveAsync(PaymentEvent paymentEvent, string payload, DateTimeOffset processedAt, CancellationToken cancellationToken)
+    {
         Payment? existingPayment = await this.paymentStore.FindPaymentAsync(paymentEvent.PaymentIntentId, cancellationToken);
         PaymentStatus? fromStatus = existingPayment?.Status;
         TransitionOutcome outcome = existingPayment is null
