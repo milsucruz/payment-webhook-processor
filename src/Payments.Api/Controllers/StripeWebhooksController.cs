@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using Payments.Api.RateLimiting;
 using Payments.Application.Webhooks;
 
 namespace Payments.Api.Controllers;
@@ -23,6 +25,7 @@ public class StripeWebhooksController : ControllerBase
     // No parameters, not even a CancellationToken: any bound parameter lets MVC consume form bodies first.
     [HttpPost]
     [RequestSizeLimit(MaxBodyBytes)]
+    [EnableRateLimiting(WebhookRateLimitOptions.PolicyName)]
     public async Task<IActionResult> ReceiveAsync()
     {
         // Raw body, before any deserialization: the signature is checked over it as received.

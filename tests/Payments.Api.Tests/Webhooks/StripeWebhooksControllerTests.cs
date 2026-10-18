@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
 using Microsoft.AspNetCore.Hosting;
@@ -111,15 +112,83 @@ public class StripeWebhooksControllerTests : IClassFixture<WebApplicationFactory
         Assert.Equal(LogLevel.Warning, level);
     }
 
-    private HttpClient CreateClient(IEventPublisher publisher, ILoggerProvider? loggerProvider = null) =>
+    [Fact]
+    public async Task Signed_requests_above_the_rate_limit_return_429_and_publish_nothing()
+    {
+        RecordingEventPublisher publisher = new();
+        HttpClient client = this.CreateClient(publisher, permitLimit: 2);
+
+        HttpResponseMessage first = await client.SendAsync(SignedRequest(EventJson));
+        HttpResponseMessage second = await client.SendAsync(SignedRequest(EventJson));
+        HttpResponseMessage third = await client.SendAsync(SignedRequest(EventJson));
+
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, third.StatusCode);
+        Assert.Equal(2, publisher.Published.Count);
+    }
+
+    [Fact]
+    public async Task Unsigned_requests_count_toward_the_rate_limit()
+    {
+        RecordingEventPublisher publisher = new();
+        HttpClient client = this.CreateClient(publisher, permitLimit: 2);
+
+        HttpResponseMessage first = await client.SendAsync(UnsignedRequest(EventJson));
+        HttpResponseMessage second = await client.SendAsync(UnsignedRequest(EventJson));
+        HttpResponseMessage signed = await client.SendAsync(SignedRequest(EventJson));
+
+        Assert.Equal(HttpStatusCode.BadRequest, first.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, second.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, signed.StatusCode);
+        Assert.Empty(publisher.Published);
+    }
+
+    [Fact]
+    public async Task Each_client_ip_has_its_own_rate_limit()
+    {
+        HttpClient client = this.CreateClient(new RecordingEventPublisher(), permitLimit: 1);
+        await client.SendAsync(UnsignedRequest(EventJson, "203.0.113.1"));
+
+        HttpResponseMessage sameClient = await client.SendAsync(UnsignedRequest(EventJson, "203.0.113.1"));
+        HttpResponseMessage otherClient = await client.SendAsync(UnsignedRequest(EventJson, "203.0.113.2"));
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, sameClient.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, otherClient.StatusCode);
+    }
+
+    [Fact]
+    public async Task Rate_limit_applies_only_to_the_webhook()
+    {
+        HttpClient client = this.CreateClient(new RecordingEventPublisher(), permitLimit: 1);
+        await client.SendAsync(UnsignedRequest(EventJson));
+
+        HttpResponseMessage limited = await client.SendAsync(UnsignedRequest(EventJson));
+        HttpResponseMessage health = await client.GetAsync("/health/live");
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, health.StatusCode);
+    }
+
+    private HttpClient CreateClient(IEventPublisher publisher, ILoggerProvider? loggerProvider = null, int? permitLimit = null) =>
         this.factory
             .WithWebHostBuilder(builder =>
             {
+                if (permitLimit is not null)
+                {
+                    builder.UseSetting("WebhookRateLimit:PermitLimit", permitLimit.Value.ToString(CultureInfo.InvariantCulture));
+                    builder.UseSetting("WebhookRateLimit:Window", "01:00:00");
+                }
+
                 builder.UseSetting("Stripe:WebhookSecret", Secret);
                 builder.UseSetting("ServiceBus:ConnectionString", "Endpoint=sb://localhost;SharedAccessKeyName=test;SharedAccessKey=test");
                 builder.UseSetting("ServiceBus:EventsQueueName", "payment-events");
                 builder.UseSetting("Admin:ApiKey", "test-admin-key");
-                builder.ConfigureTestServices(services => services.AddSingleton(publisher));
+                builder.ConfigureTestServices(services =>
+                {
+                    services.AddSingleton(publisher);
+                    services.AddTransient<IStartupFilter, ClientIpStartupFilter>();
+                });
                 if (loggerProvider is not null)
                 {
                     builder.ConfigureLogging(logging => logging.AddProvider(loggerProvider));
@@ -134,6 +203,20 @@ public class StripeWebhooksControllerTests : IClassFixture<WebApplicationFactory
             Content = new StringContent(body, Encoding.UTF8, "application/json"),
         };
         request.Headers.Add("Stripe-Signature", StripeSignatureHelper.Header(body, Secret, Now()));
+        return request;
+    }
+
+    private static HttpRequestMessage UnsignedRequest(string body, string? clientIp = null)
+    {
+        HttpRequestMessage request = new(HttpMethod.Post, "/webhooks/stripe")
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
+        if (clientIp is not null)
+        {
+            request.Headers.Add(ClientIpStartupFilter.HeaderName, clientIp);
+        }
+
         return request;
     }
 
