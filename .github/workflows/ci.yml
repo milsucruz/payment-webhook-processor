@@ -29,6 +29,5 @@ jobs:
       - name: Build
         run: dotnet build --no-restore --configuration Release
 
-      # Integration tests need Docker and join CI in task 3.5.
       - name: Test
-        run: dotnet test --no-build --configuration Release --filter "FullyQualifiedName!~Payments.IntegrationTests" --logger "console;verbosity=normal"
+        run: dotnet test --no-build --configuration Release --logger "console;verbosity=normal"

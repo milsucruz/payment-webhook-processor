@@ -1,71 +1,35 @@
 using Azure.Messaging.ServiceBus;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
-using Payments.Application.Processing;
-using Payments.Infrastructure.Faults;
-using Payments.Infrastructure.Persistence;
-using Payments.Worker;
-using Testcontainers.ServiceBus;
+using Microsoft.Extensions.Hosting;
 
 namespace Payments.IntegrationTests.Worker;
 
+[Collection(WorkerCollection.Name)]
 public class PaymentEventsWorkerDeadLetterTests : IAsyncLifetime
 {
-    private const string QueueName = "payment-events";
-    private const string UnusedDatabase = "Server=unused;Database=Payments";
+    private readonly WorkerFixture fixture;
 
-    private readonly ServiceBusContainer container = new ServiceBusBuilder("mcr.microsoft.com/azure-messaging/servicebus-emulator:2.0.1")
-        .WithAcceptLicenseAgreement(true)
-        .WithConfig(Path.Combine(AppContext.BaseDirectory, "servicebus-emulator-config.json"))
-        .Build();
+    public PaymentEventsWorkerDeadLetterTests(WorkerFixture fixture)
+    {
+        this.fixture = fixture;
+    }
 
-    public Task InitializeAsync() => this.container.StartAsync();
+    public Task InitializeAsync() => this.fixture.PurgeAsync();
 
-    public Task DisposeAsync() => this.container.DisposeAsync().AsTask();
+    public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
     public async Task Unreadable_event_is_dead_lettered_on_the_first_delivery_with_the_reason()
     {
-        await using ServiceBusClient client = new(this.container.GetConnectionString());
-        await using ServiceProvider services = BuildServices();
-        await using ServiceBusProcessor processor = client.CreateProcessor(QueueName, new ServiceBusProcessorOptions
-        {
-            ReceiveMode = ServiceBusReceiveMode.PeekLock,
-            AutoCompleteMessages = false,
-        });
-        PaymentEventsWorker worker = new(processor, services.GetRequiredService<IServiceScopeFactory>(), NullLogger<PaymentEventsWorker>.Instance);
+        using IHost worker = await this.fixture.StartWorkerAsync(new CollectingLoggerProvider());
 
-        await using (ServiceBusSender sender = client.CreateSender(QueueName))
-        {
-            await sender.SendMessageAsync(new ServiceBusMessage("not json") { MessageId = "evt_unreadable" });
-        }
+        await this.fixture.SendAsync("evt_unreadable", "not json");
+        ServiceBusReceivedMessage deadLettered = await this.fixture.PeekDeadLetterAsync();
+        await worker.StopAsync();
 
-        await worker.StartAsync(CancellationToken.None);
-        await using ServiceBusReceiver deadLetterReceiver = client.CreateReceiver(
-            QueueName,
-            new ServiceBusReceiverOptions { SubQueue = SubQueue.DeadLetter });
-        ServiceBusReceivedMessage? deadLettered = await deadLetterReceiver.ReceiveMessageAsync(TimeSpan.FromSeconds(30));
-        await worker.StopAsync(CancellationToken.None);
-
-        Assert.NotNull(deadLettered);
         Assert.Equal("evt_unreadable", deadLettered.MessageId);
         Assert.Equal("not json", deadLettered.Body.ToString());
         Assert.Equal("InvalidEvent", deadLettered.DeadLetterReason);
         Assert.Equal("The event body is not valid JSON.", deadLettered.DeadLetterErrorDescription);
-        Assert.Equal(1, deadLettered.DeliveryCount);
-    }
-
-    private static ServiceProvider BuildServices()
-    {
-        ServiceCollection services = new();
-        services.AddLogging();
-        services.AddDbContext<PaymentsDbContext>(options => options.UseSqlServer(UnusedDatabase));
-        services.AddScoped<IPaymentStore, PaymentStore>();
-        services.AddSingleton<ITransientErrorDetector, SqlTransientErrorDetector>();
-        services.AddSingleton(TimeProvider.System);
-        services.AddSingleton<IFaultInjector, NoFaultInjector>();
-        services.AddScoped<ProcessStripeEvent>();
-        return services.BuildServiceProvider();
+        Assert.Equal(0, deadLettered.DeliveryCount);
     }
 }

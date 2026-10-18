@@ -82,7 +82,7 @@ The container disposes the processor and the client, which are singletons, when 
 | `ServiceBus:EventsQueueName` | `appsettings.Development.json` | Container App setting |
 | `ConnectionStrings:Payments` | `dotnet user-secrets` for `dotnet run`, environment variable in compose | Passwordless (section 8), task 4.6 |
 
-`ServiceBusOptions` is validated on start, as in the API. The connection string is checked in `Program.cs` before `AddDbContext`, so a missing value stops the worker at startup instead of at the first message.
+`ServiceBusOptions` is validated on start, as in the API. The connection string is checked in `Program.AddPaymentEventsWorker` before `AddDbContext`, so a missing value stops the worker at startup instead of at the first message.
 
 `appsettings.Development.json` lowers `Microsoft.EntityFrameworkCore` to `Warning`. At `Information`, EF logs every SQL command, three or four per message, and buries the use case's one line per event. Errors from EF still show up.
 
@@ -94,9 +94,21 @@ In compose the worker waits for `migrator` to finish successfully and for `servi
 
 There is no unit test of the settlement mapping: building fake `ProcessMessageEventArgs` costs more than the `switch` it would check. It is checked against the real Service Bus emulator instead.
 
-`tests/Payments.IntegrationTests/Worker/PaymentEventsWorkerDeadLetterTests.cs` is task 3.2's done criterion. It starts the emulator in Testcontainers, sends a message whose body is `not json`, runs the real `PaymentEventsWorker` with a processor built like the one in `Program.cs` (peek-lock, no auto-complete), and receives from the dead-letter subqueue. It asserts the same `MessageId` and body, the reason `InvalidEvent`, the parser message as description, and `DeliveryCount` 1, which proves the message went on the first delivery and not after five. The services are registered as in `Program.cs`, but the database connection string points nowhere: an unreadable event fails in the parser, before the use case opens a transaction, so no SQL Server is needed. Putting the `InvalidEvent` case back on the abandon path fails the test with `MaxDeliveryCountExceeded` as the reason (mutation check in the task 3.2 session).
+The integration tests in `tests/Payments.IntegrationTests/Worker/` run the real worker against SQL Server and the emulator in Testcontainers, with the registrations of `Program.AddPaymentEventsWorker` (see "Registrations" below and `docs/code/WorkerFixture.md`):
 
-The impossible conflict takes the same path with the other code. Its integration test ("paid" for a canceled payment, dead-lettered on the first delivery) belongs to task 3.5, together with the poison message, the duplicate delivery and the crash after commit.
+| Test | Scenario | Asserts |
+| --- | --- | --- |
+| `PaymentEventsWorkerDeadLetterTests` (task 3.2) | A body that is `not json` | Dead-letter with the same `MessageId` and body, reason `InvalidEvent`, the parser message, `DeliveryCount` 0 (first delivery). Putting `InvalidEvent` back on the abandon path fails it with `MaxDeliveryCountExceeded` (task 3.2 session) |
+| `Duplicate_delivery_writes_one_row_and_rolls_back` (3.5) | The same message delivered twice, one after the other | One inbox row, one history row, the payment's `RowVersion` unchanged by the second delivery, "already processed" logged (error 2627 on `PK_InboxEvents` turned into `DuplicateEvent`), nothing in the dead-letter |
+| `Poison_message_reaches_the_dead_letter_after_5_deliveries` (3.5) | `demo_fault=poison`, fault injection on | `MaxDeliveryCountExceeded`, `DeliveryCount` 5, no payment or inbox row |
+| `Impossible_conflict_reaches_the_dead_letter_on_the_first_delivery` (3.5) | "canceled", then "paid" for the same payment | Reason `ImpossibleConflict` (literal), the use case's text as description, `DeliveryCount` 0, payment still canceled, only the canceled event in the inbox |
+| `Crash_after_commit_does_not_duplicate_on_redelivery` (3.5) | The store throws once right after a successful commit | The message comes back, the inbox makes it a duplicate, it is completed; one inbox and one history row, nothing in the dead-letter. Completing the message before calling the use case fails it (mutation check in the task 3.5 session, see `docs/code/WorkerFixture.md`) |
+
+`DeliveryCount` is read with a peek, as the dead-letter screen reads it. In the emulator a peek counts the deliveries that ended without a settlement, so a message the worker dead-letters on its first delivery shows 0, and a receive would show 1 (task 3.5; see `docs/code/WorkerFixture.md`).
+
+## Registrations
+
+`Program.AddPaymentEventsWorker(services, configuration)` holds every registration of the worker, and the top-level statements only build the host around it. It is a public static method on a `public partial class Program` in the same file, not an extension method in its own class, because `CLAUDE.md` lets `Payments.Infrastructure` appear only in `Program.cs`. The integration tests call it, so a changed registration (processor options, the fault injector switch) is what the tests run, instead of a copy that would drift (task 3.5; it replaced the hand-built processor of the task 3.2 test).
 
 ## Verified in task 2.5
 
