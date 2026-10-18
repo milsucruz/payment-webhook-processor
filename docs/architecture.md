@@ -41,6 +41,7 @@ The problem is real: Stripe resends events when it doesn't get a timely response
 | Concurrency conflict | Two events for the same payment were processed at the same time and the other one wrote first; the losing one is processed again from the read. Not the same as an impossible conflict, which never succeeds on a retry |
 | Transient error | A failure that a later attempt can fix, such as the database restarting, paused or throttling, or the network dropping; the event is retried with a wait. Not the same as a concurrency conflict, which is retried at once |
 | Permanent error | A failure that no retry can fix: an unreadable event, an unsupported type or an impossible conflict; it goes straight to the dead-letter with the reason |
+| Reprocess | Send a copy of a dead-lettered message back to the event queue and remove the original from the dead-letter; the inbox makes it safe even if the event was already applied |
 | Poison message | A message that fails on every delivery with an error that is neither transient nor permanent; Service Bus moves it to the dead-letter after 5 deliveries. Not the same as a permanent error, which goes there on the first delivery |
 | Demo fault | A failure forced on purpose by the `demo_fault` metadata of a test payment, to show retry, dead-letter or scaling; it only exists when fault injection is turned on |
 | Valid event sequence | The distinct events of one payment's lifecycle, with no impossible conflict among them and a single highest event: the highest level and, among refunds, the largest refunded amount. Requires action and processing tied at the top, or two distinct events for the same state at the top, don't form one |
@@ -258,7 +259,7 @@ A primary key violation on `InboxEvents` means something else: the event was alr
 
 - **Transient error:** 1 attempt plus 3 retries inside the worker, waiting 200 ms, 1 s and 5 s before each retry. If it persists, the worker abandons the message and Service Bus delivers it again.
 - **Permanent error:** the worker dead-letters the message immediately, with reason and description. Retrying wouldn't help.
-- **Reprocessing:** the dashboard lists the dead-letter without removing the messages. The reprocess button receives the message, publishes a copy to the main queue, and completes the original.
+- **Reprocessing:** the dashboard lists the dead-letter without removing the messages (`GET /api/dead-letters`, public like the rest of the dashboard). The reprocess button (`POST /api/dead-letters/{sequenceNumber}/reprocess`, with `X-Admin-Key`) receives the message, publishes a copy to the main queue, and completes the original. The message is chosen by its sequence number, not its event ID, because the same event can be in the dead-letter more than once. Basic has no transactions, so a crash between the publish and the completion leaves an extra copy, which the inbox turns into a duplicate.
 - **Alert:** an Azure Monitor rule sends an email when the dead-letter count of `payment-events` goes above zero.
 
 ### Worker scaling
@@ -490,7 +491,7 @@ The solution follows a lean Clean Architecture: the domain knows nothing about A
 | Project | Contents |
 | --- | --- |
 | `src/Payments.Domain` | `Payment`, `PaymentStatus`, transition table and transition result; no dependencies |
-| `src/Payments.Application` | `ReceiveStripeEvent` and `ProcessStripeEvent` use cases, and the signature verifier, event publisher, payment store (inbox, payments and history in one transaction), transient error detector, fault injector and notification ports |
+| `src/Payments.Application` | `ReceiveStripeEvent`, `ProcessStripeEvent`, `ListDeadLetters` and `ReprocessDeadLetter` use cases, and the signature verifier, event publisher, payment store (inbox, payments and history in one transaction), transient error detector, fault injector, dead-letter queue and notification ports |
 | `src/Payments.Infrastructure` | EF Core, Service Bus, Stripe signature validation and OpenTelemetry configuration |
 | `src/Payments.Api` | Controllers, hub, notification consumer and dashboard files |
 | `src/Payments.Worker` | `BackgroundService` with the `ServiceBusProcessor` |
@@ -584,7 +585,7 @@ Eight points need to be validated early, because a surprise in any of them chang
 | The API's cold start may exceed Stripe's response timeout | M4 | Stripe resends; if it becomes a nuisance, minimum replica of 1 |
 | A paused database delays the first event by tens of seconds | M4 | The 60 s lock and the retry cover it; if not enough, increase the lock duration |
 | The Service Bus emulator may behave differently from the cloud in delivery counting | M3 | Also run the dead-letter tests against the real namespace in the pipeline |
-| Service Bus may not receive a specific dead-letter message by ID; only deferred messages are received by sequence number | M3 | The reprocess endpoint receives a batch from the dead-letter, republishes and completes the matching message, and abandons the others |
+| Service Bus may not receive a specific dead-letter message by ID; only deferred messages are received by sequence number | M3. Confirmed in task 3.4: the SDK receives by sequence number only deferred messages, so plan B is in use | The reprocess endpoint receives a batch from the dead-letter, republishes and completes the matching message, and abandons the others |
 | The pipeline may need more roles than Contributor and the conditioned Role Based Access Control Administrator | M4 | Add the missing role at the narrowest scope and record it in section 8 |
 | The Service Bus SDK may not link the worker's span to the API's even with the experimental `ActivitySource` switch on | M5 | Read `Diagnostic-Id` from the message properties and start the worker's span with that parent by hand |
 

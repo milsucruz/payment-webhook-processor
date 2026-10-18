@@ -93,7 +93,7 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 ## Comandos
 
 ```bash
-cp .env.example .env            # uma vez; preencha MSSQL_SA_PASSWORD e STRIPE_WEBHOOK_SECRET
+cp .env.example .env            # uma vez; preencha MSSQL_SA_PASSWORD, STRIPE_WEBHOOK_SECRET e ADMIN_API_KEY
 stripe listen --print-secret    # valor de STRIPE_WEBHOOK_SECRET; depois de mudar o .env, docker compose up -d api
 docker compose up -d            # SQL Server, emulador do Service Bus, migrator (aplica as migrations e sai), API e worker
 curl http://localhost:5300/health   # emulador pronto quando responde 200; antes disso o webhook responde 500

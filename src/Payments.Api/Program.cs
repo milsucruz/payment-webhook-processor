@@ -1,5 +1,7 @@
 using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Options;
+using Payments.Api.Authorization;
+using Payments.Application.DeadLetters;
 using Payments.Application.Messaging;
 using Payments.Application.Webhooks;
 using Payments.Infrastructure.Messaging;
@@ -43,7 +45,18 @@ builder.Services.AddSingleton<IEventPublisher>(serviceProvider => new ServiceBus
     serviceProvider.GetRequiredService<ServiceBusClient>(),
     serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value.EventsQueueName));
 
+builder.Services.AddSingleton<IDeadLetterQueue>(serviceProvider => new ServiceBusDeadLetterQueue(
+    serviceProvider.GetRequiredService<ServiceBusClient>(),
+    serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value.EventsQueueName));
+
 builder.Services.AddSingleton<ReceiveStripeEvent>();
+builder.Services.AddSingleton<ListDeadLetters>();
+builder.Services.AddSingleton<ReprocessDeadLetter>();
+
+builder.Services.AddOptions<AdminOptions>()
+    .BindConfiguration(AdminOptions.SectionName)
+    .Validate(options => !string.IsNullOrWhiteSpace(options.ApiKey), "Admin:ApiKey is required.")
+    .ValidateOnStart();
 
 builder.Services.AddHealthChecks();
 builder.Services.AddOpenApi();
