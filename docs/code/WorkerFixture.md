@@ -15,8 +15,8 @@ The fixture starts one SQL Server and gives it to the emulator with `WithMsSqlCo
 Each test isolates itself instead of getting fresh containers:
 
 - **Its own IDs.** Every test uses its own `pi_` and `evt_` values and filters the database by them.
-- **An empty queue to start.** `InitializeAsync` drains the queue and its dead-letter in receive-and-delete mode.
-- **Its own worker.** Each test starts a host and stops it before asserting, so no handler is still running and the logs belong to that test.
+- **An empty queue to start.** `InitializeAsync` drains the queue and its dead-letter in receive-and-delete mode, and keeps draining until a peek of both comes back empty. A receive can't see a message that is still locked from an earlier test; the peek can, so the purge waits for it instead of leaving it for the next test (found in code review).
+- **Its own worker.** Each test starts a host and stops it before asserting, so no handler is still running and the logs belong to that test. The fixture keeps every host it started, and the test's `DisposeAsync` stops them too, so a test that fails before its own stop doesn't leave a worker holding a lock (found in code review).
 
 The other integration classes (publisher, dead-letter queue, concurrency) keep their own containers: two of them read "the" message of the queue and the third counts rows over the whole database. See `docs/pending.md`.
 
@@ -24,10 +24,11 @@ The other integration classes (publisher, dead-letter queue, concurrency) keep t
 
 `StartWorkerAsync` builds a host with `DisableDefaults`, so no `appsettings.json` or environment variable leaks into the test, adds the containers' connection strings as in-memory configuration, and calls `Program.AddPaymentEventsWorker`, the same method the real worker calls. A test can replace registrations afterwards: the last registration wins.
 
-`CollectingLoggerProvider` keeps every log message, which is how the duplicate and crash scenarios see "already processed", the proof that the second delivery went through error 2627 to `DuplicateEvent`.
+The logger provider is optional. `CollectingLoggerProvider` keeps every log message, which is how the duplicate and crash scenarios see "already processed", the proof that the second delivery went through error 2627 to `DuplicateEvent`.
 
 ## Waiting without fixed sleeps
 
+- One sender and two peek receivers (queue and dead-letter) live as long as the fixture. A receiver remembers where its last peek stopped, so every peek passes `fromSequenceNumber: 0` to start from the oldest message. The first version opened a new link per poll, up to hundreds per wait (code review).
 - `WaitUntilQueueIsEmptyAsync` peeks the queue every 200 ms until it is empty. A peek also returns locked messages, so an empty peek means every message was completed or dead-lettered, including a redelivery after an abandon.
 - `PeekDeadLetterAsync` peeks the dead-letter every 200 ms until a message is there.
 
@@ -56,3 +57,11 @@ Alternatives not used:
 ## Mutation check
 
 Making the worker complete the message before calling the use case (auto-complete style) fails the crash scenario with `Expected: 1, Actual: 0`: the queue is empty before the event is processed, so the test stops the worker and finds no crash and no row. That empty-queue-before-commit window is where a real crash would lose the event, which is the rule "the worker completes only after the commit".
+
+## The unreadable event no longer needs a dead database
+
+Until task 3.5, the `InvalidEvent` test pointed the worker at a database that didn't exist, so any SQL call before the parser would have failed it. With the shared fixture the database is real, so the test now asserts that no inbox row exists for `evt_unreadable` instead (code review).
+
+## Code review findings not applied
+
+- **Peek through `ServiceBusDeadLetterQueue.PeekAsync`.** Its `DeadLetter` record has no body, and the `InvalidEvent` test checks that the body is kept as received. The raw SDK peek is the same call the class makes.

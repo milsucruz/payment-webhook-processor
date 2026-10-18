@@ -41,9 +41,9 @@ public sealed class CrashAfterCommitPaymentStore : IPaymentStore
 
 public sealed class CrashSwitch
 {
-    private int crashes;
+    private int crashed;
 
-    public int Crashes => this.crashes;
+    public bool Crashed => Volatile.Read(ref this.crashed) == 1;
 
-    public bool TryCrash() => Interlocked.CompareExchange(ref this.crashes, 1, 0) == 0;
+    public bool TryCrash() => Interlocked.Exchange(ref this.crashed, 1) == 0;
 }
