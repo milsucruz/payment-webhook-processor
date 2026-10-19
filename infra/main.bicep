@@ -1,6 +1,8 @@
 targetScope = 'resourceGroup'
 
 param location string = resourceGroup().location
+@minLength(3)
+@maxLength(24)
 param namePrefix string
 
 var apiIdentityName = 'id-${namePrefix}-api'

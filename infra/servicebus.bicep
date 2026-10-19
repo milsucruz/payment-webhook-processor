@@ -5,8 +5,8 @@ param workerPrincipalId string
 param apiIdentityName string
 param workerIdentityName string
 
-var senderRoleId = '69a216fc-b8fb-44d8-bc22-1f3c2cd27a39'
-var receiverRoleId = '4f6d3b9b-027b-4f4c-9142-0e5a2a2247e0'
+var serviceBusDataSenderRoleId = '69a216fc-b8fb-44d8-bc22-1f3c2cd27a39'
+var serviceBusDataReceiverRoleId = '4f6d3b9b-027b-4f4c-9142-0e5a2a2247e0'
 
 resource namespace 'Microsoft.ServiceBus/namespaces@2024-01-01' = {
   name: 'sb-${namePrefix}-${uniqueString(resourceGroup().id)}'
@@ -44,9 +44,9 @@ resource paymentNotifications 'Microsoft.ServiceBus/namespaces/queues@2024-01-01
 
 resource apiSendsEvents 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: paymentEvents
-  name: guid(paymentEvents.id, apiIdentityName, senderRoleId)
+  name: guid(paymentEvents.id, apiIdentityName, serviceBusDataSenderRoleId)
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', senderRoleId)
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', serviceBusDataSenderRoleId)
     principalId: apiPrincipalId
     principalType: 'ServicePrincipal'
   }
@@ -54,9 +54,9 @@ resource apiSendsEvents 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 
 resource apiReceivesEvents 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: paymentEvents
-  name: guid(paymentEvents.id, apiIdentityName, receiverRoleId)
+  name: guid(paymentEvents.id, apiIdentityName, serviceBusDataReceiverRoleId)
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', receiverRoleId)
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', serviceBusDataReceiverRoleId)
     principalId: apiPrincipalId
     principalType: 'ServicePrincipal'
   }
@@ -64,9 +64,9 @@ resource apiReceivesEvents 'Microsoft.Authorization/roleAssignments@2022-04-01' 
 
 resource apiReceivesNotifications 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: paymentNotifications
-  name: guid(paymentNotifications.id, apiIdentityName, receiverRoleId)
+  name: guid(paymentNotifications.id, apiIdentityName, serviceBusDataReceiverRoleId)
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', receiverRoleId)
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', serviceBusDataReceiverRoleId)
     principalId: apiPrincipalId
     principalType: 'ServicePrincipal'
   }
@@ -74,9 +74,9 @@ resource apiReceivesNotifications 'Microsoft.Authorization/roleAssignments@2022-
 
 resource workerReceivesEvents 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: paymentEvents
-  name: guid(paymentEvents.id, workerIdentityName, receiverRoleId)
+  name: guid(paymentEvents.id, workerIdentityName, serviceBusDataReceiverRoleId)
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', receiverRoleId)
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', serviceBusDataReceiverRoleId)
     principalId: workerPrincipalId
     principalType: 'ServicePrincipal'
   }
@@ -84,9 +84,9 @@ resource workerReceivesEvents 'Microsoft.Authorization/roleAssignments@2022-04-0
 
 resource workerSendsNotifications 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: paymentNotifications
-  name: guid(paymentNotifications.id, workerIdentityName, senderRoleId)
+  name: guid(paymentNotifications.id, workerIdentityName, serviceBusDataSenderRoleId)
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', senderRoleId)
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', serviceBusDataSenderRoleId)
     principalId: workerPrincipalId
     principalType: 'ServicePrincipal'
   }
