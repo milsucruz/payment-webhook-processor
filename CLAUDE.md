@@ -47,6 +47,21 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
   - No fim, uma tabela "decisão / por quê em uma frase / origem" e uma lista de perguntas de entrevista com resposta curta.
   - Descreva o que está no repositório, não o planejado. Se algo divergiu da arquitetura ou ficou em `docs/pending.md`, diga.
 
+## Modo Professor (M4)
+
+Na fase 4 o autor ainda não conhece os serviços do Azure. Antes de cada tarefa do M4, e antes de criar qualquer recurso, explique em português:
+
+1. **O que é e para que serve** o serviço, em uma ou duas frases e sem jargão. Compare com o equivalente local que o projeto já usa (ex.: Service Bus ↔ emulador no compose; Key Vault ↔ `user-secrets`).
+2. **Por que ele e não a alternativa.** Cite a decisão da seção 12 da arquitetura ou a restrição de custo da seção 10. Diga o que foi descartado e por quê.
+3. **Os detalhes que importam para esta tarefa:** camada/SKU escolhida e o que ela não tem (ex.: Basic sem tópicos), identidade e papel RBAC envolvidos, quota gratuita e o que acontece quando ela acaba.
+4. **O que pode dar errado e quanto custa errar.** Aponte qualquer passo que gere cobrança ou seja difícil de desfazer, antes de rodá-lo.
+5. **Como ver o resultado no portal ou na CLI** (`az ...`), para o autor conferir com os próprios olhos o que o "pronto quando" afirma.
+
+- A explicação vem dentro do plano da tarefa, antes da aprovação.
+- Um conceito reutilizado em outra tarefa (ex.: managed identity em 4.2, 4.3 e 4.6) é explicado por completo na primeira vez; depois, só relembrado.
+- Ao concluir a tarefa, o resumo diz o que foi criado e por que cada escolha foi feita, como já exige "Como trabalhar".
+- A regra vale só no M4 e não substitui as de custo: nenhum recurso é criado sem a aprovação do plano.
+
 ## Regras do desenho que não mudam sem ADR
 
 - A API não grava no banco no caminho do webhook: valida a assinatura, publica na fila e responde.
