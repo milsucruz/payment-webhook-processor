@@ -433,10 +433,10 @@ New Azure accounts get US$ 200 of credit for 30 days, which covers any overrun d
 
 ### Cost safeguards
 
-- **Budget:** create a US$ 5 budget in Cost Management, with alerts at 50% and 100%, before the first deploy.
+- **Budget:** a monthly US$ 5 budget in Cost Management on the subscription, with alerts on actual spend at 50% and 100%, created in the portal before the first deploy (task 4.1).
 - **Free database:** configure it to pause when the monthly allowance runs out, instead of billing the overage.
 - **Database region:** the region of the first free database applies to the others in the subscription. Confirm the offer is available before choosing.
-- **Suggested region:** East US 2, for price, or North Europe, which is in Ireland. All resources in the same region.
+- **Region:** East US 2, chosen in task 4.1 for price; the free database offer showed as available there. All resources go in the resource group `rg-payment-webhooks`, in the same region.
 - **Service Bus Standard:** don't create it, not even to test, because it has a fixed hourly fee.
 
 ### Container sizing
@@ -593,7 +593,7 @@ Eight points need to be validated early, because a surprise in any of them chang
 
 - [ ] Dashboard framework: Angular or React. Suggestion: Angular, since Diopta already shows React.
 - [ ] Final name of the repository and the project.
-- [ ] Region: East US 2 or North Europe.
+- [x] Region: East US 2 (task 4.1).
 - [ ] Keep the environment running once done, or bring it up only for demos, with a short video in the README.
 
 ### Questions the project prepares you to answer
