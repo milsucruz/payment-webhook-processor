@@ -4,6 +4,8 @@ param location string = resourceGroup().location
 @minLength(3)
 @maxLength(24)
 param namePrefix string
+param sqlAdminLogin string
+param sqlAdminObjectId string
 
 var apiIdentityName = 'id-${namePrefix}-api'
 var workerIdentityName = 'id-${namePrefix}-worker'
@@ -28,5 +30,16 @@ module serviceBus 'servicebus.bicep' = {
     workerPrincipalId: identity.outputs.workerPrincipalId
     apiIdentityName: apiIdentityName
     workerIdentityName: workerIdentityName
+  }
+}
+
+module sql 'sql.bicep' = {
+  name: 'sql'
+  params: {
+    location: location
+    namePrefix: namePrefix
+    adminLogin: sqlAdminLogin
+    adminObjectId: sqlAdminObjectId
+    tenantId: subscription().tenantId
   }
 }

@@ -334,7 +334,7 @@ The pipeline needs the second role because the Bicep creates the role assignment
 
 ### Passwordless database
 
-The SQL server has an Entra ID admin and password authentication turned off. Each identity becomes a contained user, created with `CREATE USER [name] FROM EXTERNAL PROVIDER`. The developer runs those statements once, signed in as the Entra ID admin, in a setup step after the first Bicep deploy; the pipeline has no access to the database's data plane. This is the one exception to NFR7: the statements live in a versioned script under `infra/`, so recreating the environment is the Bicep plus that script. The connection string uses `Authentication=Active Directory Default`, which works with the managed identity in the cloud and with `az login` when the developer connects to the cloud database.
+The SQL server has an Entra ID admin and password authentication turned off. Each identity becomes a contained user, created with `CREATE USER [name] WITH SID = <client ID as binary>, TYPE = E`, not `FROM EXTERNAL PROVIDER`: that form asks Entra ID to resolve the name, which needs the SQL server's identity to have directory read permission, an extra tenant-wide grant that can also fail for a guest admin account. With the SID the database never calls Entra ID, and the result is the same user. The developer runs those statements once, signed in as the Entra ID admin, in a setup step after the first Bicep deploy; the pipeline has no access to the database's data plane. This is the one exception to NFR7: the statements live in a versioned script under `infra/`, so recreating the environment is the Bicep plus that script. The connection string uses `Authentication=Active Directory Default`, which works with the managed identity in the cloud and with `az login` when the developer connects to the cloud database.
 
 The local environment doesn't use Entra ID: the database is the SQL Server in the compose file, with SQL authentication as `sa`. Its password lives in `.env`, which is git-ignored and filled from `.env.example`, so it never reaches the code, the image or the repository (NFR5).
 
@@ -436,7 +436,8 @@ New Azure accounts get US$ 200 of credit for 30 days, which covers any overrun d
 - **Budget:** a monthly US$ 5 budget in Cost Management on the subscription, with alerts on actual spend at 50% and 100%, created in the portal before the first deploy (task 4.1).
 - **Free database:** configure it to pause when the monthly allowance runs out, instead of billing the overage.
 - **Database region:** the region of the first free database applies to the others in the subscription. Confirm the offer is available before choosing.
-- **Region:** East US 2, chosen in task 4.1 for price; the free database offer showed as available there, on the portal's create screen only; the real check is creating the database in task 4.3, and if it fails the region is chosen again. All resources go in the resource group `rg-payment-webhooks`, in the same region.
+- **Region:** Central US. Task 4.1 chose East US 2, but the SQL server creation in task 4.3 failed there and in East US with `RegionDoesNotAllowProvisioning`: this subscription can only create servers in regions the Azure SQL capabilities API (`/providers/Microsoft.Sql/locations/<region>/capabilities`) reports as `Available` (Central US, West US, West US 3, Brazil South and Canada Central at the time; `Visible` means it cannot). The group was deleted and recreated in Central US. All resources go in the resource group `rg-payment-webhooks`, in the same region.
+- **Database firewall:** the Bicep opens only the "allow Azure services" rule (0.0.0.0), so Container Apps can connect; Entra ID sign-in and the contained users still decide who gets in. The developer's own IP is added by hand with `az sql server firewall-rule create`, since it is personal and changes.
 - **Service Bus Standard:** don't create it, not even to test, because it has a fixed hourly fee.
 
 ### Container sizing
@@ -454,7 +455,7 @@ New Azure accounts get US$ 200 of credit for 30 days, which covers any overrun d
 | `main.bicep` | Orchestrates the modules and receives the environment parameters |
 | `identity.bicep` | The managed identities |
 | `servicebus.bicep` | Namespace, both queues and the role assignments |
-| `sql.bicep` | Server, free database and Entra ID admin |
+| `sql.bicep` | Server, free database, Entra ID admin and the Azure services firewall rule |
 | `keyvault.bicep` | Vault and role assignments |
 | `monitoring.bicep` | Log Analytics, Application Insights and alerts |
 | `containerapps.bicep` | Environment, API, worker and migration job |
@@ -593,7 +594,7 @@ Eight points need to be validated early, because a surprise in any of them chang
 
 - [ ] Dashboard framework: Angular or React. Suggestion: Angular, since Diopta already shows React.
 - [ ] Final name of the repository and the project.
-- [x] Region: East US 2 (task 4.1).
+- [x] Region: Central US (task 4.1 chose East US 2; task 4.3 moved it because the subscription cannot create SQL servers there).
 - [ ] Keep the environment running once done, or bring it up only for demos, with a short video in the README.
 
 ### Questions the project prepares you to answer
