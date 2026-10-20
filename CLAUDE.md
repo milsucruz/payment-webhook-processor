@@ -8,6 +8,7 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 - `docs/tasks.md`: tarefas por marco, com horas, critério de pronto e a coluna "Done" (✅ feita, ⬜ pendente). O fim do arquivo tem o registro de sessões ("Session log"), que diz onde o projeto está.
 - `docs/pending.md`: pendências encontradas numa tarefa e fora do escopo dela, com a tarefa em que devem ser resolvidas.
 - `docs/code/`: um documento por classe com a explicação detalhada que não cabe nos comentários do código. Leia o da classe antes de alterá-la.
+- `docs/azure/`: um documento por serviço do Azure e um por tarefa do M4, em português (ver "Modo Professor"). Leia o do serviço antes de mexer nele.
 - `docs/adr/`: decisões de arquitetura, em inglês. A pasta ainda não existe; os ADRs são escritos na tarefa 6.2. Até lá, a fonte das decisões é a seção 12 da arquitetura, que lista as dez.
 
 | Assunto | Seção de `docs/architecture.md` |
@@ -49,17 +50,26 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 
 ## Modo Professor (M4)
 
-Na fase 4 o autor ainda não conhece os serviços do Azure. Antes de cada tarefa do M4, e antes de criar qualquer recurso, explique em português:
+Na fase 4 o autor ainda não conhece os serviços do Azure. A explicação vira documento versionado em `docs/azure/`, em português (exceção à regra de inglês de `docs/`: o objetivo é o autor entender e defender; `docs/azure/README.md` é o índice). Dois tipos de documento:
 
-1. **O que é e para que serve** o serviço, em uma ou duas frases e sem jargão. Compare com o equivalente local que o projeto já usa (ex.: Service Bus ↔ emulador no compose; Key Vault ↔ `user-secrets`).
-2. **Por que ele e não a alternativa.** Cite a decisão da seção 12 da arquitetura ou a restrição de custo da seção 10. Diga o que foi descartado e por quê.
-3. **Os detalhes que importam para esta tarefa:** camada/SKU escolhida e o que ela não tem (ex.: Basic sem tópicos), identidade e papel RBAC envolvidos, quota gratuita e o que acontece quando ela acaba.
-4. **O que pode dar errado e quanto custa errar.** Aponte qualquer passo que gere cobrança ou seja difícil de desfazer, antes de rodá-lo.
-5. **Como ver o resultado no portal ou na CLI** (`az ...`), para o autor conferir com os próprios olhos o que o "pronto quando" afirma.
+- **`docs/azure/<servico>.md`**: um por serviço (ex.: `service-bus.md`, `azure-sql.md`, `managed-identity-rbac.md`). Escrito na primeira tarefa que usa o serviço e só atualizado depois. Seções, nesta ordem:
+  1. **O que é**, em linguagem simples e com uma analogia.
+  2. **Equivalente local** que o projeto já usa (Service Bus ↔ emulador no compose; Key Vault ↔ `user-secrets`).
+  3. **Por que ele e não a alternativa**, citando a decisão da seção 12 ou a restrição de custo da seção 10.
+  4. **Camada/SKU escolhida**, o que ela não tem, a quota gratuita e o que acontece quando acaba.
+  5. **Como entra no nosso sistema**, com um diagrama Mermaid curto e um exemplo concreto do fluxo (ex.: "o worker lê `payment-events` assim...").
+  6. **Glossário** dos termos do serviço.
+  7. **O que pode dar errado e quanto custa errar**: o que gera cobrança ou é difícil de desfazer.
+  8. **Como conferir** no portal e na CLI (`az ...`).
+- **`docs/azure/tasks/<N.N>-<nome>.md`**: um por tarefa do M4, escrito no fim dela a partir do que está no repositório, não do planejado: recursos criados, o Bicep ou script comentado trecho a trecho, comandos rodados com a saída, o que deu errado e como foi resolvido.
 
-- A explicação vem dentro do plano da tarefa, antes da aprovação.
-- Um conceito reutilizado em outra tarefa (ex.: managed identity em 4.2, 4.3 e 4.6) é explicado por completo na primeira vez; depois, só relembrado.
-- Ao concluir a tarefa, o resumo diz o que foi criado e por que cada escolha foi feita, como já exige "Como trabalhar".
+Regras:
+
+- **Antes da aprovação**, o plano da tarefa traz: um bloco "Gera cobrança ou é difícil de desfazer" no topo (ou "nada" quando não há); um resumo de 3 a 5 linhas do que a tarefa cria e por quê; e o link para o doc do serviço. Se o doc do serviço ainda não existe, ele é escrito e mostrado antes de o plano ser aprovado.
+- Um conceito reutilizado em outra tarefa (ex.: managed identity em 4.2, 4.3 e 4.6) é explicado por completo no doc do serviço na primeira vez; depois, o plano só linka e relembra.
+- Cada conceito novo no chat vem com um exemplo concreto do nosso fluxo. O plano termina com 2 ou 3 perguntas de checagem para o autor responder antes de criar o recurso.
+- Ao concluir a tarefa, o resumo diz o que foi criado e por que cada escolha foi feita, como já exige "Como trabalhar", e o doc da tarefa entra no mesmo PR da tarefa.
+- A nota de estudo do M4 (`notes/m4-nuvem-explicado.md`) linka para esses docs em vez de duplicá-los.
 - A regra vale só no M4 e não substitui as de custo: nenhum recurso é criado sem a aprovação do plano.
 
 ## Regras do desenho que não mudam sem ADR
