@@ -33,6 +33,25 @@ module serviceBus 'servicebus.bicep' = {
   }
 }
 
+module keyVault 'keyvault.bicep' = {
+  name: 'keyvault'
+  params: {
+    location: location
+    namePrefix: namePrefix
+    tenantId: subscription().tenantId
+    apiPrincipalId: identity.outputs.apiPrincipalId
+    apiIdentityName: apiIdentityName
+  }
+}
+
+module monitoring 'monitoring.bicep' = {
+  name: 'monitoring'
+  params: {
+    location: location
+    namePrefix: namePrefix
+  }
+}
+
 module sql 'sql.bicep' = {
   name: 'sql'
   params: {
