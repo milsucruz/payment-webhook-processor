@@ -23,6 +23,7 @@ The total came out above the initial estimate of 40 to 60 hours, which was made 
 - **One task per session.** Ask Claude Code for a short plan before any code, citing the task number and the section of the architecture document.
 - **Read the diff.** Once the code is written, explain out loud what each part does.
 - **Azure account only in M4.** From M0 to M3 everything runs on the local machine, and the 30-day credit only starts counting when the account is created.
+- **M4 comes with documents.** Each M4 task explains its service in `docs/azure/<service>.md` (written the first time the service is used) and, when done, adds `docs/azure/tasks/<N.N>-<name>.md` with what was created. They are in Portuguese; see "Modo Professor" in `CLAUDE.md`.
 - **Measure M0 and M1.** If together they take more than 12.5 hours, apply the same factor to the rest.
 
 ## M0. Skeleton (4.5 to 5.5 h)

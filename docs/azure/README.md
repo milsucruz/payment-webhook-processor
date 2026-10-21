@@ -1,0 +1,28 @@
+# Azure: serviços e tarefas do M4
+
+Documentos em português (exceção à regra de inglês de `docs/`, ver "Modo Professor" no `CLAUDE.md`). Servem para o autor entender e defender cada recurso criado na nuvem.
+
+## Serviços
+
+| Documento | Serviço | Usado em |
+| --- | --- | --- |
+| [service-bus.md](service-bus.md) | Azure Service Bus (Basic) | 4.2, 4.6, 4.7 |
+| [managed-identity-rbac.md](managed-identity-rbac.md) | Identidade gerenciada e RBAC | 4.2, 4.3, 4.6, 4.8 |
+| [azure-sql.md](azure-sql.md) | Azure SQL Database (oferta gratuita) | 4.3, 4.6 |
+
+Os de Key Vault, Log Analytics/Application Insights, Container Apps e OIDC do GitHub Actions são escritos na primeira tarefa que os usa (4.4, 4.5 e 4.8).
+
+## Tarefas
+
+| Documento | Tarefa |
+| --- | --- |
+| [tasks/4.2-identidades-e-service-bus.md](tasks/4.2-identidades-e-service-bus.md) | 4.2 Identidades e Service Bus |
+| [tasks/4.3-sql-gratuito.md](tasks/4.3-sql-gratuito.md) | 4.3 Banco SQL gratuito |
+
+A tarefa 4.1 (conta, orçamento e grupo de recursos) foi feita à mão no portal e não tem Bicep para comentar; ficou registrada no "Session log" de `docs/tasks.md`.
+
+## Como ler
+
+1. Leia o documento do serviço (o que é, por que, como entra no sistema).
+2. Leia o da tarefa (o que foi criado de fato, linha a linha, e o que deu errado).
+3. Confira com os comandos `az` da última seção de cada documento.
