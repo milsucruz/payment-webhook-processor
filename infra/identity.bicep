@@ -21,3 +21,7 @@ resource migrator 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' 
 output apiPrincipalId string = api.properties.principalId
 output workerPrincipalId string = worker.properties.principalId
 output migratorPrincipalId string = migrator.properties.principalId
+
+output apiId string = api.id
+output workerId string = worker.id
+output migratorId string = migrator.id
