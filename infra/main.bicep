@@ -76,6 +76,12 @@ module containerApps 'containerapps.bicep' = {
     apiIdentityId: identity.outputs.apiId
     workerIdentityId: identity.outputs.workerId
     migratorIdentityId: identity.outputs.migratorId
+    apiClientId: identity.outputs.apiClientId
+    workerClientId: identity.outputs.workerClientId
+    migratorClientId: identity.outputs.migratorClientId
+    serviceBusNamespace: serviceBus.outputs.fullyQualifiedNamespace
+    sqlServerFqdn: sql.outputs.serverFqdn
+    sqlDatabaseName: sql.outputs.databaseName
     vaultUri: keyVault.outputs.vaultUri
     workspaceName: monitoring.outputs.workspaceName
     faultInjectionEnabled: faultInjectionEnabled

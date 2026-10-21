@@ -20,11 +20,11 @@ public partial class Program
     {
         services.AddOptions<ServiceBusOptions>()
             .BindConfiguration(ServiceBusOptions.SectionName)
-            .Validate(options => !string.IsNullOrWhiteSpace(options.ConnectionString), "ServiceBus:ConnectionString is required.")
+            .Validate(options => options.HasSingleEndpoint, "Set exactly one of ServiceBus:ConnectionString and ServiceBus:FullyQualifiedNamespace.")
             .Validate(options => !string.IsNullOrWhiteSpace(options.EventsQueueName), "ServiceBus:EventsQueueName is required.")
             .ValidateOnStart();
         services.AddSingleton(serviceProvider =>
-            new ServiceBusClient(serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value.ConnectionString));
+            ServiceBusClientFactory.Create(serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value));
         services.AddSingleton(serviceProvider =>
         {
             ServiceBusProcessorOptions processorOptions = new()
