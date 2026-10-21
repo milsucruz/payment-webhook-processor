@@ -6,6 +6,9 @@ param location string = resourceGroup().location
 param namePrefix string
 param sqlAdminLogin string
 param sqlAdminObjectId string
+param imageRegistry string
+param imageTag string
+param faultInjectionEnabled bool
 
 var apiIdentityName = 'id-${namePrefix}-api'
 var workerIdentityName = 'id-${namePrefix}-worker'
@@ -62,3 +65,21 @@ module sql 'sql.bicep' = {
     tenantId: subscription().tenantId
   }
 }
+
+module containerApps 'containerapps.bicep' = {
+  name: 'containerapps'
+  params: {
+    location: location
+    namePrefix: namePrefix
+    imageRegistry: imageRegistry
+    imageTag: imageTag
+    apiIdentityId: identity.outputs.apiId
+    workerIdentityId: identity.outputs.workerId
+    migratorIdentityId: identity.outputs.migratorId
+    vaultUri: keyVault.outputs.vaultUri
+    workspaceName: monitoring.outputs.workspaceName
+    faultInjectionEnabled: faultInjectionEnabled
+  }
+}
+
+output apiFqdn string = containerApps.outputs.apiFqdn
