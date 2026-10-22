@@ -136,6 +136,7 @@ dotnet user-secrets set Stripe:SecretKey <sk_test_...> --project tools/Simulator
 dotnet run --project tools/Simulator -- pay                          # um pagamento por cartão de teste: aprova, recusa, pede autenticação
 dotnet run --project tools/Simulator -- refund <pi_...> [centavos]   # sem valor, reembolso total
 dotnet run --project tools/Simulator -- replay [seed]                # reenvia cada evento do inbox duas vezes, embaralhado; precisa do compose de pé
+dotnet run --project tools/Simulator -- flood [quantidade]           # N pagamentos novos com demo_fault=slow (padrão 100), 8 por segundo; na nuvem, Simulator__WebhookUrl e Stripe__WebhookSecret do Key Vault
 $env:SQL_ADMIN_LOGIN = "<seu UPN>"; $env:SQL_ADMIN_OBJECT_ID = "<seu object id>"; az deployment group create -g rg-payment-webhooks -p infra/main.bicepparam   # PowerShell; deploy do Bicep, e as duas variáveis definem o admin Entra do SQL (no bash, export)
 az sql server firewall-rule create -g rg-payment-webhooks -s <servidor> -n developer --start-ip-address <seu IP> --end-ip-address <seu IP>   # libera o seu IP no banco da nuvem
 pwsh infra/sql/create-users.ps1 -ResourceGroup rg-payment-webhooks -ServerName <servidor> -SqlCmd <caminho do go-sqlcmd>   # cria os usuários das identidades no banco; precisa do go-sqlcmd (winget install sqlcmd) e de az login como admin Entra

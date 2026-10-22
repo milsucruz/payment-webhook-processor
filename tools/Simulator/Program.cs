@@ -70,10 +70,32 @@ switch (mode)
                 cancellation.Token);
         }
 
+    case "flood" when args.Length is 1 or 2:
+        {
+            int count = FloodMode.DefaultCount;
+            if (args.Length == 2 && (!int.TryParse(args[1], out count) || count <= 0))
+            {
+                Console.Error.WriteLine("The count must be a positive number.");
+                return 2;
+            }
+
+            using HttpClient httpClient = new();
+            Uri webhookUrl = new(configuration["Simulator:WebhookUrl"] ?? "http://localhost:8080/webhooks/stripe");
+
+            return await FloodMode.RunAsync(
+                httpClient,
+                webhookUrl,
+                Settings.Require(configuration, "Stripe:WebhookSecret"),
+                count,
+                TimeProvider.System,
+                cancellation.Token);
+        }
+
     default:
         Console.Error.WriteLine("Usage:");
         Console.Error.WriteLine("  pay                               one payment per test card: approve, decline, authenticate");
         Console.Error.WriteLine("  refund <pi_...> [amount-in-cents] full refund, or partial with an amount");
         Console.Error.WriteLine("  replay [seed]                     resend every inbox event twice, shuffled, freshly signed");
+        Console.Error.WriteLine("  flood [count]                     send count new paid payments (default 100) with demo_fault=slow");
         return 2;
 }

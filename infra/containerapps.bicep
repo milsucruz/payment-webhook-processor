@@ -9,6 +9,7 @@ param apiClientId string
 param workerClientId string
 param migratorClientId string
 param serviceBusNamespace string
+param serviceBusNamespaceName string
 param sqlServerFqdn string
 param sqlDatabaseName string
 param vaultUri string
@@ -21,7 +22,7 @@ resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' existin
   name: workspaceName
 }
 
-resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
+resource environment 'Microsoft.App/managedEnvironments@2025-01-01' = {
   name: 'cae-${namePrefix}'
   location: location
   properties: {
@@ -35,7 +36,7 @@ resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
   }
 }
 
-resource api 'Microsoft.App/containerApps@2024-03-01' = {
+resource api 'Microsoft.App/containerApps@2025-01-01' = {
   name: 'ca-${namePrefix}-api'
   location: location
   identity: {
@@ -82,6 +83,29 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'ServiceBus__FullyQualifiedNamespace', value: serviceBusNamespace }
             { name: 'AZURE_CLIENT_ID', value: apiClientId }
           ]
+          probes: [
+            {
+              type: 'Liveness'
+              httpGet: {
+                path: '/health/live'
+                port: 8080
+              }
+              periodSeconds: 10
+              timeoutSeconds: 3
+              failureThreshold: 3
+            }
+            {
+              type: 'Readiness'
+              httpGet: {
+                path: '/health/ready'
+                port: 8080
+              }
+              initialDelaySeconds: 1
+              periodSeconds: 5
+              timeoutSeconds: 10
+              failureThreshold: 3
+            }
+          ]
         }
       ]
       scale: {
@@ -92,7 +116,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
-resource worker 'Microsoft.App/containerApps@2024-03-01' = {
+resource worker 'Microsoft.App/containerApps@2025-01-01' = {
   name: 'ca-${namePrefix}-worker'
   location: location
   identity: {
@@ -127,12 +151,26 @@ resource worker 'Microsoft.App/containerApps@2024-03-01' = {
       scale: {
         minReplicas: 0
         maxReplicas: 3
+        rules: [
+          {
+            name: 'payment-events-length'
+            custom: {
+              type: 'azure-servicebus'
+              metadata: {
+                namespace: serviceBusNamespaceName
+                queueName: 'payment-events'
+                messageCount: '20'
+              }
+              identity: workerIdentityId
+            }
+          }
+        ]
       }
     }
   }
 }
 
-resource migrationJob 'Microsoft.App/jobs@2024-03-01' = {
+resource migrationJob 'Microsoft.App/jobs@2025-01-01' = {
   name: 'caj-${namePrefix}-migrator'
   location: location
   identity: {

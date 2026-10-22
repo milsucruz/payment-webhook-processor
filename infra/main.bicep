@@ -80,6 +80,7 @@ module containerApps 'containerapps.bicep' = {
     workerClientId: identity.outputs.workerClientId
     migratorClientId: identity.outputs.migratorClientId
     serviceBusNamespace: serviceBus.outputs.fullyQualifiedNamespace
+    serviceBusNamespaceName: serviceBus.outputs.namespaceName
     sqlServerFqdn: sql.outputs.serverFqdn
     sqlDatabaseName: sql.outputs.databaseName
     vaultUri: keyVault.outputs.vaultUri

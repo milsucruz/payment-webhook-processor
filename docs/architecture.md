@@ -264,7 +264,7 @@ A primary key violation on `InboxEvents` means something else: the event was alr
 
 ### Worker scaling
 
-Container Apps scales the worker by queue length, with a KEDA rule of type `azure-servicebus`: one replica per 20 pending messages, from 0 to 3 replicas. The rule authenticates with the worker's managed identity.
+Container Apps scales the worker by queue length, with a KEDA rule of type `azure-servicebus`: one replica per 20 pending messages, from 0 to 3 replicas. The rule authenticates with the worker's managed identity, and the Data Receiver role the worker already has on `payment-events` is enough for it to read the queue length (task 4.7). With the queue empty, the worker goes back to zero after the 300 s cooldown.
 
 ### Fault injection for demos
 
@@ -411,7 +411,7 @@ The first 5 GB of ingestion per month are free. The workspace has a 0.2 GB daily
 | `/health/live` | That the process responds | Container Apps liveness probe |
 | `/health/ready` | Connection to Service Bus | Readiness probe |
 
-The database is deliberately left out of the API's readiness check: it may be paused, and the API must keep receiving webhooks.
+The database is deliberately left out of the API's readiness check: it may be paused, and the API must keep receiving webhooks. The readiness check peeks `payment-events`, which the API's Data Receiver role allows, and liveness runs no check, so a Service Bus outage takes the replica out of traffic instead of restarting it. The worker has no ingress and no HTTP server, so it has no probes; a crashed process restarts its container anyway.
 
 ## 10. Infrastructure, cost and deploy
 
@@ -526,7 +526,7 @@ The property test is the most valuable in the project. It proves the central cla
 | `pay` | Creates payments in Stripe test mode with test cards that approve, decline or require authentication |
 | `refund` | Refunds existing payments, fully or partially |
 | `replay` | Resends already received events, signed with the test secret, doubled and out of order |
-| `flood` | Creates a large batch of payments to trigger worker scaling |
+| `flood` | Creates a large batch of payments to trigger worker scaling: new signed `payment_intent.succeeded` events with `demo_fault=slow`, sent straight to the webhook at most 8 per second, under the rate limit |
 
 ## 12. Architecture decisions
 
@@ -582,8 +582,8 @@ Eight points need to be validated early, because a surprise in any of them chang
 | Risk | When to validate | Plan B |
 | --- | --- | --- |
 | An open SignalR connection may not keep the API replica from scaling to zero | M5 | Minimum replica of 1 during demos |
-| The role the KEDA rule needs to read the queue length may be broader than Data Receiver | M4 | Assign the role indicated in the KEDA docs to that identity only, and add it to the roles the pipeline's condition allows (section 8) |
-| The API's cold start may exceed Stripe's response timeout | M4 | Stripe resends; if it becomes a nuisance, minimum replica of 1 |
+| The role the KEDA rule needs to read the queue length may be broader than Data Receiver | M4. Task 4.7: not needed. The rule, with the worker's identity and only its Data Receiver role on `payment-events`, scaled the worker from 0 to 3 replicas with 96 messages in the queue, although the KEDA docs ask for Manage access with a connection string | Assign the role indicated in the KEDA docs to that identity only, and add it to the roles the pipeline's condition allows (section 8) |
+| The API's cold start may exceed Stripe's response timeout | M4. Task 4.7 measured 27.7 s for the first webhook from zero replicas (task 4.6 saw 9.4 s): about 19 s placing the replica and pulling the image, about 7 s from the app listening to the `200`, readiness probe included; the publish didn't time out. To compare with Stripe's real deliveries in task 4.9 (`docs/pending.md`) | Stripe resends; if it becomes a nuisance, minimum replica of 1 |
 | A paused database delays the first event by tens of seconds | M4 | The 60 s lock and the retry cover it; if not enough, increase the lock duration |
 | The Service Bus emulator may behave differently from the cloud in delivery counting | M3. Task 3.5 found the emulator's count: a peek shows the deliveries that ended without a settlement (0 when the worker dead-letters on the first delivery, 5 after `MaxDeliveryCountExceeded`), a receive shows one more. Still to compare with the cloud (`docs/pending.md`) | Also run the dead-letter tests against the real namespace in the pipeline |
 | Service Bus may not receive a specific dead-letter message by ID; only deferred messages are received by sequence number | M3. Confirmed in task 3.4: the SDK receives by sequence number only deferred messages, so plan B is in use | The reprocess endpoint receives a batch from the dead-letter, republishes and completes the matching message, and abandons the others |
