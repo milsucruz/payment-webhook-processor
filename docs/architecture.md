@@ -360,7 +360,7 @@ The dashboard is public and read-only, because all the data is test data. Action
 
 ### Secretless pipeline
 
-GitHub Actions authenticates to Azure via OIDC, with a federated credential restricted to the repository and the `main` branch. No long-lived secret is stored in GitHub. Pull request runs don't match that credential, so `ci.yml` never signs in to Azure; everything that needs Azure, `what-if` included, runs in `deploy.yml`.
+GitHub Actions authenticates to Azure via OIDC, with a federated credential restricted to the repository and the `main` branch, on an app registration rather than a managed identity, so the identity lives outside the resource group it deploys and survives recreating it. No long-lived secret is stored in GitHub: the repository holds only the variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_SUBSCRIPTION_ID`, which are identifiers, and pushes to GHCR use the workflow's own short-lived `GITHUB_TOKEN`. Pull request runs don't match that credential, so `ci.yml` never signs in to Azure; everything that needs Azure, `what-if` included, runs in `deploy.yml`.
 
 ## 9. Observability
 
@@ -415,7 +415,7 @@ The database is deliberately left out of the API's readiness check: it may be pa
 
 ## 10. Infrastructure, cost and deploy
 
-All infrastructure is created by Bicep, except the resource group and the budget, which task 4.1 created by hand in the portal (see `docs/pending.md`), and fits within the free allowances, except for Service Bus, billed per million operations, and Key Vault, billed per 10,000 operations. Both come to cents at this volume.
+All infrastructure is created by Bicep, except the resource group and the budget, which task 4.1 created by hand in the portal (see `docs/pending.md`), and the pipeline's identity, which cannot grant itself its own roles: `infra/pipeline/setup-oidc.ps1` (task 4.8), run once by the developer, creates the app registration, its federated credential and its two role assignments on the group. The infrastructure fits within the free allowances, except for Service Bus, billed per million operations, and Key Vault, billed per 10,000 operations. Both come to cents at this volume.
 
 ### Resources and cost
 
@@ -466,6 +466,8 @@ New Azure accounts get US$ 200 of credit for 30 days, which covers any overrun d
 | --- | --- | --- |
 | `ci.yml` | Pull request | Build, unit tests, integration tests with Testcontainers and `bicep build`; no Azure sign-in |
 | `deploy.yml` | Push to `main` | Build the images and push to GHCR tagged with the commit; `what-if`; deploy the Bicep with the new tag on the migration job only, keeping the API and the worker on the running tag, read from the active revision with `az containerapp show`; run the migration job; update the API and the worker to the new tag |
+
+The Bicep takes one image tag per app (`API_IMAGE_TAG`, `WORKER_IMAGE_TAG`, `MIGRATOR_IMAGE_TAG`), with no default, so a deploy that forgets one fails instead of rolling an app back. The API and the worker are updated with `az containerapp update` and the revision suffix `sha-<first 7 characters of the commit>`. The pipeline reads the SQL server's Entra ID admin from the server and masks it in the log, since the repository and its logs are public; the developer sets that admin in the first deploy (section 8), so the pipeline never creates the server from nothing. Pushes that only change `docs/` or Markdown files don't deploy.
 
 `what-if` runs after the merge, so it only records the diff in the deploy log; it doesn't block anything. The review before the merge is the pull request itself.
 

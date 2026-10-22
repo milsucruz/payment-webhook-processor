@@ -7,7 +7,9 @@ param namePrefix string
 param sqlAdminLogin string
 param sqlAdminObjectId string
 param imageRegistry string
-param imageTag string
+param apiImageTag string
+param workerImageTag string
+param migratorImageTag string
 param faultInjectionEnabled bool
 
 var apiIdentityName = 'id-${namePrefix}-api'
@@ -72,7 +74,9 @@ module containerApps 'containerapps.bicep' = {
     location: location
     namePrefix: namePrefix
     imageRegistry: imageRegistry
-    imageTag: imageTag
+    apiImageTag: apiImageTag
+    workerImageTag: workerImageTag
+    migratorImageTag: migratorImageTag
     apiIdentityId: identity.outputs.apiId
     workerIdentityId: identity.outputs.workerId
     migratorIdentityId: identity.outputs.migratorId

@@ -7,7 +7,9 @@ using Payments.Infrastructure.Persistence;
 HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
 
 builder.Services.AddDbContext<PaymentsDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("Payments")));
+    options.UseSqlServer(
+        builder.Configuration.GetConnectionString("Payments"),
+        sqlServer => sqlServer.EnableRetryOnFailure()));
 
 using IHost host = builder.Build();
 

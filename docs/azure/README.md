@@ -12,8 +12,7 @@ Documentos em português (exceção à regra de inglês de `docs/`, ver "Modo Pr
 | [key-vault.md](key-vault.md) | Azure Key Vault | 4.4, 4.5, 4.9 |
 | [container-apps.md](container-apps.md) | Azure Container Apps (Consumption) | 4.5, 4.6, 4.7, 4.8 |
 | [log-analytics-application-insights.md](log-analytics-application-insights.md) | Log Analytics e Application Insights | 4.4, 5.6, 5.7 |
-
-O de OIDC do GitHub Actions é escrito na primeira tarefa que o usa (4.8).
+| [github-actions-oidc.md](github-actions-oidc.md) | GitHub Actions com OIDC (pipeline sem segredo) | 4.8 |
 
 ## Tarefas
 
