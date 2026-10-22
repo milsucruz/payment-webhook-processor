@@ -51,9 +51,15 @@ jobs:
       - name: Read running tags and SQL admin
         run: |
           az extension add --name containerapp --upgrade --only-show-errors
-          for app in api worker; do
-            image=$(az containerapp list -g "$RESOURCE_GROUP" --query "[?name=='ca-payment-webhooks-$app'].properties.template.containers[0].image" -o tsv)
+          # The latest ready revision, not the template: a failed update leaves its image in the template.
+          for name in "$API_APP" "$WORKER_APP"; do
+            revision=$(az containerapp list -g "$RESOURCE_GROUP" --query "[?name=='$name'].properties.latestReadyRevisionName" -o tsv)
+            image=""
+            if [ -n "$revision" ]; then
+              image=$(az containerapp revision show -g "$RESOURCE_GROUP" -n "$name" --revision "$revision" --query "properties.template.containers[0].image" -o tsv)
+            fi
             tag="${image##*:}"
+            app="${name##*-}"
             echo "${app^^}_IMAGE_TAG=${tag:-$IMAGE_TAG}" >> "$GITHUB_ENV"
           done
           echo "MIGRATOR_IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
@@ -75,7 +81,7 @@ jobs:
         run: |
           execution=$(az containerapp job start -g "$RESOURCE_GROUP" -n "$MIGRATION_JOB" --query name -o tsv)
           while true; do
-            status=$(az containerapp job execution show -g "$RESOURCE_GROUP" -n "$MIGRATION_JOB" --job-execution-name "$execution" --query properties.status -o tsv)
+            status=$(az containerapp job execution show -g "$RESOURCE_GROUP" -n "$MIGRATION_JOB" --job-execution-name "$execution" --query properties.status -o tsv || true)
             echo "$execution: $status"
             case "$status" in
               Succeeded) break ;;
@@ -86,7 +92,8 @@ jobs:
 
       - name: Update API and worker
         run: |
-          suffix="sha-${GITHUB_SHA::7}"
+          # The attempt number keeps a re-run from asking for a revision name that already exists.
+          suffix="sha-${GITHUB_SHA::7}-${GITHUB_RUN_ATTEMPT}"
           az containerapp update -g "$RESOURCE_GROUP" -n "$API_APP" --image "$REGISTRY-api:$IMAGE_TAG" --revision-suffix "$suffix" --output none
           az containerapp update -g "$RESOURCE_GROUP" -n "$WORKER_APP" --image "$REGISTRY-worker:$IMAGE_TAG" --revision-suffix "$suffix" --output none
           for app in "$API_APP" "$WORKER_APP"; do

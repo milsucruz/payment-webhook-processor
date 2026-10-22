@@ -11,11 +11,17 @@ $allowedRoles = @(
     'Azure Service Bus Data Sender',
     'Azure Service Bus Data Receiver',
     'Key Vault Secrets User'
-) | ForEach-Object { az role definition list --name $_ --query '[0].name' -o tsv }
+) | ForEach-Object {
+    $id = az role definition list --name $_ --query '[0].name' -o tsv
+    if (-not $id) { throw "Role '$_' not found" }
+    $id
+}
 
+$temporaryFiles = @()
 function Write-JsonFile([object] $value) {
     $path = New-TemporaryFile
     $value | ConvertTo-Json -Depth 5 | Set-Content -Path $path -Encoding utf8
+    $script:temporaryFiles += $path
     return $path
 }
 
@@ -51,12 +57,16 @@ if ($assigned -notcontains 'Contributor') {
         --role Contributor | Out-Null
 }
 
-if ($assigned -notcontains 'Role Based Access Control Administrator') {
-    $roleList = $allowedRoles -join ', '
-    $condition = "((!(ActionMatches{'Microsoft.Authorization/roleAssignments/write'})) OR " +
-        "(@Request[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {$roleList})) AND " +
-        "((!(ActionMatches{'Microsoft.Authorization/roleAssignments/delete'})) OR " +
-        "(@Resource[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {$roleList}))"
+$roleList = $allowedRoles -join ', '
+$condition = "((!(ActionMatches{'Microsoft.Authorization/roleAssignments/write'})) OR " +
+    "(@Request[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {$roleList})) AND " +
+    "((!(ActionMatches{'Microsoft.Authorization/roleAssignments/delete'})) OR " +
+    "(@Resource[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {$roleList}))"
+$rbacAdmin = az role assignment list --scope $scope --assignee $principalId --role 'Role Based Access Control Administrator' `
+    --query '[0].{name:name,condition:condition}' -o json | ConvertFrom-Json
+
+# Rewriting the assignment under the same name updates a condition that no longer matches the role list.
+if (-not $rbacAdmin -or $rbacAdmin.condition -ne $condition) {
     $roleDefinitionId = az role definition list --name 'Role Based Access Control Administrator' --query '[0].id' -o tsv
     $body = Write-JsonFile @{
         properties = @{
@@ -67,7 +77,7 @@ if ($assigned -notcontains 'Role Based Access Control Administrator') {
             conditionVersion = '2.0'
         }
     }
-    $name = [guid]::NewGuid()
+    $name = if ($rbacAdmin) { $rbacAdmin.name } else { [guid]::NewGuid() }
     az rest --method put --url "https://management.azure.com$scope/providers/Microsoft.Authorization/roleAssignments/${name}?api-version=2022-04-01" `
         --body "@$body" | Out-Null
 }
@@ -77,5 +87,7 @@ $account = az account show --query '{tenant:tenantId,subscription:id}' -o json |
 gh variable set AZURE_CLIENT_ID --repo $Repository --body $appId
 gh variable set AZURE_TENANT_ID --repo $Repository --body $account.tenant
 gh variable set AZURE_SUBSCRIPTION_ID --repo $Repository --body $account.subscription
+
+$temporaryFiles | Remove-Item
 
 Write-Output "Pipeline identity: clientId $appId, principalId $principalId"

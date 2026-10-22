@@ -106,7 +106,7 @@ Um push numa branch qualquer ou um pull request gera um token com outro `subject
 az ad app list --display-name github-payment-webhook-processor --query "[].{name:displayName,clientId:appId}" -o table
 az ad app federated-credential list --id <clientId> --query "[].{name:name,subject:subject}" -o table
 az role assignment list -g rg-payment-webhooks --assignee <clientId> --query "[].{role:roleDefinitionName,condition:condition}" -o json
-gh variable list        # AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, SQL_ADMIN_LOGIN, SQL_ADMIN_OBJECT_ID
+gh variable list        # AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID (o admin do SQL é lido do servidor, não guardado)
 gh secret list          # vazio: o pipeline não guarda segredo
 gh run list --workflow deploy.yml --limit 5
 ```
