@@ -1,0 +1,101 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+
+# Deploys run one at a time and are never cancelled halfway.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  RESOURCE_GROUP: rg-payment-webhooks
+  REGISTRY: ghcr.io/milsucruz/payment-webhook-processor
+  API_APP: ca-payment-webhooks-api
+  WORKER_APP: ca-payment-webhooks-worker
+  MIGRATION_JOB: caj-payment-webhooks-migrator
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and push images
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          for app in api worker migrator; do
+            docker build -f "src/Payments.${app^}/Dockerfile" -t "$REGISTRY-$app:$IMAGE_TAG" .
+            docker push "$REGISTRY-$app:$IMAGE_TAG"
+          done
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # The repository is public, so the SQL admin's e-mail is read from Azure and masked, never stored in GitHub.
+      - name: Read running tags and SQL admin
+        run: |
+          az extension add --name containerapp --upgrade --only-show-errors
+          # The latest ready revision, not the template: a failed update leaves its image in the template.
+          for name in "$API_APP" "$WORKER_APP"; do
+            revision=$(az containerapp list -g "$RESOURCE_GROUP" --query "[?name=='$name'].properties.latestReadyRevisionName" -o tsv)
+            image=""
+            if [ -n "$revision" ]; then
+              image=$(az containerapp revision show -g "$RESOURCE_GROUP" -n "$name" --revision "$revision" --query "properties.template.containers[0].image" -o tsv)
+            fi
+            tag="${image##*:}"
+            app="${name##*-}"
+            echo "${app^^}_IMAGE_TAG=${tag:-$IMAGE_TAG}" >> "$GITHUB_ENV"
+          done
+          echo "MIGRATOR_IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
+          server=$(az sql server list -g "$RESOURCE_GROUP" --query "[0].name" -o tsv)
+          login=$(az sql server ad-admin list -g "$RESOURCE_GROUP" -s "$server" --query "[0].login" -o tsv)
+          echo "::add-mask::$login"
+          echo "SQL_ADMIN_LOGIN=$login" >> "$GITHUB_ENV"
+          echo "SQL_ADMIN_OBJECT_ID=$(az sql server ad-admin list -g "$RESOURCE_GROUP" -s "$server" --query "[0].sid" -o tsv)" >> "$GITHUB_ENV"
+
+      - name: What-if
+        run: az deployment group what-if -g "$RESOURCE_GROUP" -p infra/main.bicepparam
+
+      # --output none: the deployment result echoes every parameter, the SQL admin included.
+      - name: Deploy Bicep
+        run: az deployment group create -g "$RESOURCE_GROUP" -n "deploy-$GITHUB_SHA" -p infra/main.bicepparam --output none
+
+      - name: Run migration job
+        timeout-minutes: 12
+        run: |
+          execution=$(az containerapp job start -g "$RESOURCE_GROUP" -n "$MIGRATION_JOB" --query name -o tsv)
+          while true; do
+            status=$(az containerapp job execution show -g "$RESOURCE_GROUP" -n "$MIGRATION_JOB" --job-execution-name "$execution" --query properties.status -o tsv || true)
+            echo "$execution: $status"
+            case "$status" in
+              Succeeded) break ;;
+              Running|Processing|"") sleep 10 ;;
+              *) exit 1 ;;
+            esac
+          done
+
+      - name: Update API and worker
+        run: |
+          # The attempt number keeps a re-run from asking for a revision name that already exists.
+          suffix="sha-${GITHUB_SHA::7}-${GITHUB_RUN_ATTEMPT}"
+          az containerapp update -g "$RESOURCE_GROUP" -n "$API_APP" --image "$REGISTRY-api:$IMAGE_TAG" --revision-suffix "$suffix" --output none
+          az containerapp update -g "$RESOURCE_GROUP" -n "$WORKER_APP" --image "$REGISTRY-worker:$IMAGE_TAG" --revision-suffix "$suffix" --output none
+          for app in "$API_APP" "$WORKER_APP"; do
+            az containerapp revision list -g "$RESOURCE_GROUP" -n "$app" --query "[?properties.active].{revision:name,image:properties.template.containers[0].image}" -o table
+          done

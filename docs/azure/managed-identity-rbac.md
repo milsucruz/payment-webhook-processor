@@ -54,8 +54,10 @@ Exemplo: o worker termina de aplicar um evento e publica o aviso em `payment-not
 - **Propagação:** uma atribuição nova pode levar minutos para valer. Erro de autorização logo após o deploy não é necessariamente bug.
 - **GUID do papel errado:** aconteceu (na 4.2 o id do Data Receiver do plano estava errado). Sempre confirmar com `az role definition list --name "Azure Service Bus Data Receiver"`.
 - **Nome da atribuição:** precisa ser determinístico (`guid(escopo, identidade, papel)`), senão cada deploy tenta criar uma nova e falha.
-- **Quem cria atribuições:** exige `Microsoft.Authorization/roleAssignments/write`, que o Contributor não tem. Por isso a pipeline (4.8) terá o papel Role Based Access Control Administrator com condição.
+- **Quem cria atribuições:** exige `Microsoft.Authorization/roleAssignments/write`, que o Contributor não tem. Por isso o pipeline tem o papel Role Based Access Control Administrator com condição, que só deixa atribuir os três papéis da seção 8 (ver [github-actions-oidc.md](github-actions-oidc.md)). Desde a 4.8 o pipeline regrava as seis atribuições a cada deploy, e a condição aceitou todas.
 - **Desfazer:** apagar a atribuição é imediato e seguro; recriar a identidade gera um `principalId` novo, e as atribuições e o usuário no SQL precisam ser refeitos.
+- **Recriar uma identidade sozinha:** os nomes das atribuições usam o nome da identidade, não o `principalId` (para o `what-if` conseguir analisá-las). Uma identidade apagada e recriada com o mesmo nome ganha `principalId` novo com os mesmos nomes de atribuição, e o deploy seguinte falha com `RoleAssignmentUpdateNotPermitted`. Apague as atribuições dela antes. Recriar o grupo de recursos inteiro não tem esse problema.
+- **Recriar o grupo de recursos:** na 4.3, depois de apagar e recriar `rg-payment-webhooks`, o deploy disse `Created` para as 5 atribuições das filas, mas elas tinham sumido minutos depois; um segundo deploy as recriou (a limpeza assíncrona do grupo antigo provavelmente apagou as novas, que têm o mesmo ID). Depois de recriar o ambiente, leia os papéis de volta (`az role assignment list --scope <id-da-fila>`) e rode o deploy de novo se faltarem. As duas atribuições do pipeline também somem com o grupo: rode `infra/pipeline/setup-oidc.ps1` de novo.
 
 ## 8. Como conferir
 

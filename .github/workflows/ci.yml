@@ -32,6 +32,16 @@ jobs:
       - name: Unit tests
         run: dotnet test --no-build --configuration Release --filter "FullyQualifiedName!~Payments.IntegrationTests" --logger "console;verbosity=normal"
 
+      # No Azure sign-in: the parameters only need to exist, so they get dummy values.
+      - name: Bicep build
+        env:
+          SQL_ADMIN_LOGIN: ci@example.com
+          SQL_ADMIN_OBJECT_ID: 00000000-0000-0000-0000-000000000000
+          API_IMAGE_TAG: ci
+          WORKER_IMAGE_TAG: ci
+          MIGRATOR_IMAGE_TAG: ci
+        run: az bicep build-params --file infra/main.bicepparam --stdout > /dev/null
+
       # SQL Server and the Service Bus emulator in Docker; a hung container fails the step instead of the 6 h job limit.
       - name: Integration tests
         timeout-minutes: 15

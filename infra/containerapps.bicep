@@ -1,7 +1,9 @@
 param location string
 param namePrefix string
 param imageRegistry string
-param imageTag string
+param apiImageTag string
+param workerImageTag string
+param migratorImageTag string
 param apiIdentityId string
 param workerIdentityId string
 param migratorIdentityId string
@@ -71,7 +73,7 @@ resource api 'Microsoft.App/containerApps@2025-01-01' = {
       containers: [
         {
           name: 'api'
-          image: '${imageRegistry}-api:${imageTag}'
+          image: '${imageRegistry}-api:${apiImageTag}'
           resources: {
             cpu: json('0.25')
             memory: '0.5Gi'
@@ -134,7 +136,7 @@ resource worker 'Microsoft.App/containerApps@2025-01-01' = {
       containers: [
         {
           name: 'worker'
-          image: '${imageRegistry}-worker:${imageTag}'
+          image: '${imageRegistry}-worker:${workerImageTag}'
           resources: {
             cpu: json('0.25')
             memory: '0.5Gi'
@@ -194,7 +196,7 @@ resource migrationJob 'Microsoft.App/jobs@2025-01-01' = {
       containers: [
         {
           name: 'migrator'
-          image: '${imageRegistry}-migrator:${imageTag}'
+          image: '${imageRegistry}-migrator:${migratorImageTag}'
           resources: {
             cpu: json('0.25')
             memory: '0.5Gi'

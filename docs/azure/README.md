@@ -12,8 +12,7 @@ Documentos em português (exceção à regra de inglês de `docs/`, ver "Modo Pr
 | [key-vault.md](key-vault.md) | Azure Key Vault | 4.4, 4.5, 4.9 |
 | [container-apps.md](container-apps.md) | Azure Container Apps (Consumption) | 4.5, 4.6, 4.7, 4.8 |
 | [log-analytics-application-insights.md](log-analytics-application-insights.md) | Log Analytics e Application Insights | 4.4, 5.6, 5.7 |
-
-O de OIDC do GitHub Actions é escrito na primeira tarefa que o usa (4.8).
+| [github-actions-oidc.md](github-actions-oidc.md) | GitHub Actions com OIDC (pipeline sem segredo) | 4.8 |
 
 ## Tarefas
 
@@ -25,6 +24,7 @@ O de OIDC do GitHub Actions é escrito na primeira tarefa que o usa (4.8).
 | [tasks/4.5-container-apps.md](tasks/4.5-container-apps.md) | 4.5 Container Apps |
 | [tasks/4.6-identidade-gerenciada-nas-conexoes.md](tasks/4.6-identidade-gerenciada-nas-conexoes.md) | 4.6 Identidade gerenciada nas conexões |
 | [tasks/4.7-escala-e-probes.md](tasks/4.7-escala-e-probes.md) | 4.7 Regra de escala e probes |
+| [tasks/4.8-pipeline-de-deploy.md](tasks/4.8-pipeline-de-deploy.md) | 4.8 Pipeline de deploy com OIDC |
 
 A tarefa 4.1 (conta, orçamento e grupo de recursos) foi feita à mão no portal e não tem Bicep para comentar; ficou registrada no "Session log" de `docs/tasks.md`.
 

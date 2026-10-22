@@ -360,7 +360,7 @@ The dashboard is public and read-only, because all the data is test data. Action
 
 ### Secretless pipeline
 
-GitHub Actions authenticates to Azure via OIDC, with a federated credential restricted to the repository and the `main` branch. No long-lived secret is stored in GitHub. Pull request runs don't match that credential, so `ci.yml` never signs in to Azure; everything that needs Azure, `what-if` included, runs in `deploy.yml`.
+GitHub Actions authenticates to Azure via OIDC, with a federated credential restricted to the repository and the `main` branch, on an app registration. The credential's subject uses GitHub's immutable format, with the owner's and the repository's numeric IDs (`repo:<owner>@<id>/<repo>@<id>:ref:refs/heads/main`), so a repository recreated under the same name doesn't inherit the access. The identity is an app registration rather than a managed identity, so the identity lives outside the resource group it deploys and survives recreating it. No long-lived secret is stored in GitHub: the repository holds only the variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_SUBSCRIPTION_ID`, which are identifiers, and pushes to GHCR use the workflow's own short-lived `GITHUB_TOKEN`. Pull request runs don't match that credential, so `ci.yml` never signs in to Azure; everything that needs Azure, `what-if` included, runs in `deploy.yml`.
 
 ## 9. Observability
 
@@ -415,7 +415,7 @@ The database is deliberately left out of the API's readiness check: it may be pa
 
 ## 10. Infrastructure, cost and deploy
 
-All infrastructure is created by Bicep, except the resource group and the budget, which task 4.1 created by hand in the portal (see `docs/pending.md`), and fits within the free allowances, except for Service Bus, billed per million operations, and Key Vault, billed per 10,000 operations. Both come to cents at this volume.
+All infrastructure is created by Bicep, except the resource group and the budget, which task 4.1 created by hand in the portal (see `docs/pending.md`), and the pipeline's identity, which cannot grant itself its own roles: `infra/pipeline/setup-oidc.ps1` (task 4.8), run once by the developer, creates the app registration, its federated credential and its two role assignments on the group. The infrastructure fits within the free allowances, except for Service Bus, billed per million operations, and Key Vault, billed per 10,000 operations. Both come to cents at this volume.
 
 ### Resources and cost
 
@@ -465,7 +465,9 @@ New Azure accounts get US$ 200 of credit for 30 days, which covers any overrun d
 | Workflow | Trigger | Steps |
 | --- | --- | --- |
 | `ci.yml` | Pull request | Build, unit tests, integration tests with Testcontainers and `bicep build`; no Azure sign-in |
-| `deploy.yml` | Push to `main` | Build the images and push to GHCR tagged with the commit; `what-if`; deploy the Bicep with the new tag on the migration job only, keeping the API and the worker on the running tag, read from the active revision with `az containerapp show`; run the migration job; update the API and the worker to the new tag |
+| `deploy.yml` | Push to `main` | Build the images and push to GHCR tagged with the commit; `what-if`; deploy the Bicep with the new tag on the migration job only, keeping the API and the worker on the running tag, read from each app's latest ready revision (`latestReadyRevisionName`, then `az containerapp revision show`), since a failed update leaves its image in the app's template; run the migration job; update the API and the worker to the new tag |
+
+The Bicep takes one image tag per app (`API_IMAGE_TAG`, `WORKER_IMAGE_TAG`, `MIGRATOR_IMAGE_TAG`), with no default, so a deploy that forgets one fails instead of rolling an app back. The API and the worker are updated with `az containerapp update` and the revision suffix `sha-<first 7 characters of the commit>-<run attempt>`; the attempt number lets a re-run create a new revision instead of asking for a name that already exists. The pipeline reads the SQL server's Entra ID admin from the server and masks it in the log, since the repository and its logs are public; the developer sets that admin in the first deploy (section 8), so the pipeline never creates the server from nothing. Pushes that only change `docs/` or Markdown files don't deploy.
 
 `what-if` runs after the merge, so it only records the diff in the deploy log; it doesn't block anything. The review before the merge is the pull request itself.
 
@@ -584,10 +586,10 @@ Eight points need to be validated early, because a surprise in any of them chang
 | An open SignalR connection may not keep the API replica from scaling to zero | M5 | Minimum replica of 1 during demos |
 | The role the KEDA rule needs to read the queue length may be broader than Data Receiver | M4. Task 4.7: not needed. The rule, with the worker's identity and only its Data Receiver role on `payment-events`, scaled the worker from 0 to 3 replicas with 96 messages in the queue, although the KEDA docs ask for Manage access with a connection string | Assign the role indicated in the KEDA docs to that identity only, and add it to the roles the pipeline's condition allows (section 8) |
 | The API's cold start may exceed Stripe's response timeout | M4. Task 4.7 measured 27.7 s for the first webhook from zero replicas (task 4.6 saw 9.4 s): about 19 s placing the replica and pulling the image, about 7 s from the app listening to the `200`, readiness probe included; the publish didn't time out. To compare with Stripe's real deliveries in task 4.9 (`docs/pending.md`) | Stripe resends; if it becomes a nuisance, minimum replica of 1 |
-| A paused database delays the first event by tens of seconds | M4 | The 60 s lock and the retry cover it; if not enough, increase the lock duration |
+| A paused database delays the first event by tens of seconds | M4. Task 4.8 measured a resume of about 46 s; the decision on the retry delays is in `docs/pending.md` (M4 review) | The 60 s lock and the retry cover it; if not enough, increase the lock duration |
 | The Service Bus emulator may behave differently from the cloud in delivery counting | M3. Task 3.5 found the emulator's count: a peek shows the deliveries that ended without a settlement (0 when the worker dead-letters on the first delivery, 5 after `MaxDeliveryCountExceeded`), a receive shows one more. Still to compare with the cloud (`docs/pending.md`) | Also run the dead-letter tests against the real namespace in the pipeline |
 | Service Bus may not receive a specific dead-letter message by ID; only deferred messages are received by sequence number | M3. Confirmed in task 3.4: the SDK receives by sequence number only deferred messages, so plan B is in use | The reprocess endpoint receives a batch from the dead-letter, republishes and completes the matching message, and abandons the others |
-| The pipeline may need more roles than Contributor and the conditioned Role Based Access Control Administrator | M4 | Add the missing role at the narrowest scope and record it in section 8 |
+| The pipeline may need more roles than Contributor and the conditioned Role Based Access Control Administrator | M4. Task 4.8: not needed. With only those two roles on the group, the pipeline ran `what-if`, deployed the Bicep with its six role assignments, started the migration job and updated both apps | Add the missing role at the narrowest scope and record it in section 8 |
 | The Service Bus SDK may not link the worker's span to the API's even with the experimental `ActivitySource` switch on | M5 | Read `Diagnostic-Id` from the message properties and start the worker's span with that parent by hand |
 
 ### Open questions
