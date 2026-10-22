@@ -5,11 +5,17 @@ param imageTag string
 param apiIdentityId string
 param workerIdentityId string
 param migratorIdentityId string
+param apiClientId string
+param workerClientId string
+param migratorClientId string
+param serviceBusNamespace string
+param sqlServerFqdn string
+param sqlDatabaseName string
 param vaultUri string
 param workspaceName string
 param faultInjectionEnabled bool
 
-var placeholderServiceBusConnectionString = 'Endpoint=sb://placeholder.servicebus.windows.net/;SharedAccessKeyName=placeholder;SharedAccessKey=placeholder'
+var paymentsConnectionString = 'Server=tcp:${sqlServerFqdn},1433;Database=${sqlDatabaseName};Authentication=Active Directory Default;Encrypt=True'
 
 resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' existing = {
   name: workspaceName
@@ -73,7 +79,8 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'Stripe__WebhookSecret', secretRef: 'stripe-webhook-secret' }
             { name: 'Admin__ApiKey', secretRef: 'admin-api-key' }
             { name: 'ServiceBus__EventsQueueName', value: 'payment-events' }
-            { name: 'ServiceBus__ConnectionString', value: placeholderServiceBusConnectionString }
+            { name: 'ServiceBus__FullyQualifiedNamespace', value: serviceBusNamespace }
+            { name: 'AZURE_CLIENT_ID', value: apiClientId }
           ]
         }
       ]
@@ -110,7 +117,9 @@ resource worker 'Microsoft.App/containerApps@2024-03-01' = {
           }
           env: [
             { name: 'ServiceBus__EventsQueueName', value: 'payment-events' }
-            { name: 'ServiceBus__ConnectionString', value: placeholderServiceBusConnectionString }
+            { name: 'ServiceBus__FullyQualifiedNamespace', value: serviceBusNamespace }
+            { name: 'AZURE_CLIENT_ID', value: workerClientId }
+            { name: 'ConnectionStrings__Payments', value: paymentsConnectionString }
             { name: 'FaultInjection__Enabled', value: string(faultInjectionEnabled) }
           ]
         }
@@ -152,6 +161,10 @@ resource migrationJob 'Microsoft.App/jobs@2024-03-01' = {
             cpu: json('0.25')
             memory: '0.5Gi'
           }
+          env: [
+            { name: 'AZURE_CLIENT_ID', value: migratorClientId }
+            { name: 'ConnectionStrings__Payments', value: paymentsConnectionString }
+          ]
         }
       ]
     }

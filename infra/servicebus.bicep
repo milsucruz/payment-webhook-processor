@@ -93,3 +93,4 @@ resource workerSendsNotifications 'Microsoft.Authorization/roleAssignments@2022-
 }
 
 output namespaceName string = namespace.name
+output fullyQualifiedNamespace string = '${namespace.name}.servicebus.windows.net'

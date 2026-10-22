@@ -22,7 +22,7 @@ builder.Services.AddSingleton<IWebhookSignatureVerifier, StripeWebhookSignatureV
 
 builder.Services.AddOptions<ServiceBusOptions>()
     .BindConfiguration(ServiceBusOptions.SectionName)
-    .Validate(options => !string.IsNullOrWhiteSpace(options.ConnectionString), "ServiceBus:ConnectionString is required.")
+    .Validate(options => options.HasSingleEndpoint, "Set exactly one of ServiceBus:ConnectionString and ServiceBus:FullyQualifiedNamespace.")
     .Validate(options => !string.IsNullOrWhiteSpace(options.EventsQueueName), "ServiceBus:EventsQueueName is required.")
     .ValidateOnStart();
 builder.Services.AddSingleton(serviceProvider =>
@@ -41,7 +41,7 @@ builder.Services.AddSingleton(serviceProvider =>
         },
     };
 
-    return new ServiceBusClient(options.ConnectionString, clientOptions);
+    return ServiceBusClientFactory.Create(options, clientOptions);
 });
 builder.Services.AddSingleton<IEventPublisher>(serviceProvider => new ServiceBusEventPublisher(
     serviceProvider.GetRequiredService<ServiceBusClient>(),

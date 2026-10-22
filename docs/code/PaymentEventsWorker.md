@@ -78,11 +78,13 @@ The container disposes the processor and the client, which are singletons, when 
 
 | Key | Locally | Cloud |
 | --- | --- | --- |
-| `ServiceBus:ConnectionString` | Emulator key: `appsettings.Development.json` for `dotnet run`, environment variable in compose | Managed identity, task 4.6 (`docs/pending.md`) |
+| `ServiceBus:ConnectionString` | Emulator key: `appsettings.Development.json` for `dotnet run`, environment variable in compose | Not set |
+| `ServiceBus:FullyQualifiedNamespace` | Not set | Container App setting; the client uses the managed identity (`docs/code/ServiceBusClientFactory.md`) |
 | `ServiceBus:EventsQueueName` | `appsettings.Development.json` | Container App setting |
-| `ConnectionStrings:Payments` | `dotnet user-secrets` for `dotnet run`, environment variable in compose | Passwordless (section 8), task 4.6 |
+| `ConnectionStrings:Payments` | `dotnet user-secrets` for `dotnet run`, environment variable in compose | Container App setting with `Authentication=Active Directory Default` and no password (section 8) |
+| `AZURE_CLIENT_ID` | Not set (`az login` is used) | Client ID of the worker's identity, so `DefaultAzureCredential` and the SQL driver pick it |
 
-`ServiceBusOptions` is validated on start, as in the API. The connection string is checked in `Program.AddPaymentEventsWorker` before `AddDbContext`, so a missing value stops the worker at startup instead of at the first message.
+`ServiceBusOptions` is validated on start, as in the API: exactly one of the connection string and the namespace must be set. The database connection string is checked in `Program.AddPaymentEventsWorker` before `AddDbContext`, so a missing value stops the worker at startup instead of at the first message.
 
 `appsettings.Development.json` lowers `Microsoft.EntityFrameworkCore` to `Warning`. At `Information`, EF logs every SQL command, three or four per message, and buries the use case's one line per event. Errors from EF still show up.
 

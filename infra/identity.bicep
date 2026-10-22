@@ -25,3 +25,7 @@ output migratorPrincipalId string = migrator.properties.principalId
 output apiId string = api.id
 output workerId string = worker.id
 output migratorId string = migrator.id
+
+output apiClientId string = api.properties.clientId
+output workerClientId string = worker.properties.clientId
+output migratorClientId string = migrator.properties.clientId
