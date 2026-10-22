@@ -1,5 +1,7 @@
 using System.Threading.RateLimiting;
 using Azure.Messaging.ServiceBus;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Payments.Api.Authorization;
 using Payments.Api.RateLimiting;
@@ -83,7 +85,14 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
-builder.Services.AddHealthChecks();
+builder.Services.AddHealthChecks()
+    .Add(new HealthCheckRegistration(
+        "service-bus",
+        serviceProvider => new ServiceBusQueueHealthCheck(
+            serviceProvider.GetRequiredService<ServiceBusClient>(),
+            serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value.EventsQueueName),
+        failureStatus: null,
+        tags: null));
 builder.Services.AddOpenApi();
 
 WebApplication app = builder.Build();
@@ -100,7 +109,7 @@ app.UseRateLimiter();
 
 app.MapControllers();
 
-// Liveness only: no checks registered, so it answers as long as the process responds (architecture section 9).
-app.MapHealthChecks("/health/live");
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+app.MapHealthChecks("/health/ready");
 
 app.Run();

@@ -24,6 +24,7 @@ O de OIDC do GitHub Actions é escrito na primeira tarefa que o usa (4.8).
 | [tasks/4.4-key-vault-e-monitoramento.md](tasks/4.4-key-vault-e-monitoramento.md) | 4.4 Key Vault e monitoramento |
 | [tasks/4.5-container-apps.md](tasks/4.5-container-apps.md) | 4.5 Container Apps |
 | [tasks/4.6-identidade-gerenciada-nas-conexoes.md](tasks/4.6-identidade-gerenciada-nas-conexoes.md) | 4.6 Identidade gerenciada nas conexões |
+| [tasks/4.7-escala-e-probes.md](tasks/4.7-escala-e-probes.md) | 4.7 Regra de escala e probes |
 
 A tarefa 4.1 (conta, orçamento e grupo de recursos) foi feita à mão no portal e não tem Bicep para comentar; ficou registrada no "Session log" de `docs/tasks.md`.
 
