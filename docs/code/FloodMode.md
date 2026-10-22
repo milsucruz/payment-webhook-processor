@@ -32,6 +32,11 @@ The webhook's rate limit is 100 requests per 10 s per client IP, and behind the 
 
 At the end it prints how many responses had each status code and exits with `1` if any was not `200`, so a `429` shows up in the output.
 
+The task 4.7 code review suggested two changes, both left out:
+
+- **A shared sender with `replay`:** the two loops share about 15 lines, but the flood loop has its own pacing, and extracting a common sender would change `replay`, which this task doesn't touch. Each mode reads whole in its own file.
+- **Catching transport failures** to still print the tally: `replay` doesn't either. For a developer tool, an exception in the terminal shows the problem well enough, and `HttpClient`'s 100 s timeout is far above the 27.7 s cold start measured in 4.7.
+
 ## Configuration
 
 | Key | Source |

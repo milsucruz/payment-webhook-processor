@@ -71,7 +71,7 @@ A regra se autentica com a **identidade do worker** (`identity` na regra, com o 
 | *Liveness* (a cada 10 s, timeout 3 s) | `/health/live`, que não testa nada além do processo | Reinicia o container |
 | *Readiness* (a cada 5 s, timeout 10 s) | `/health/ready`, que faz um *peek* em `payment-events` | Tira a réplica do tráfego até voltar a responder |
 
-Exemplo concreto: se o Service Bus cair, o `ready` falha e o ingress para de mandar webhooks à réplica, mas o `live` continua `200`, então a API não reinicia em loop. Quando a API sobe do zero, a requisição espera a *readiness*, que já abre a conexão AMQP; o timeout de 10 s cobre o pior caso do *peek* com as tentativas do cliente (cerca de 8 s). O worker não tem probes: sem servidor HTTP não há o que chamar, e se o processo cair o container reinicia sozinho.
+Exemplo concreto: se o Service Bus cair, o `ready` falha e o ingress para de mandar webhooks à réplica, mas o `live` continua `200`, então a API não reinicia em loop. Quando a API sobe do zero, a requisição espera a *readiness*, que já abre a conexão AMQP; o timeout de 10 s cobre o pior caso do *peek* com as tentativas do cliente (cerca de 8 s). O preço: as probes rodam uma depois da outra, então numa queda a réplica sai do tráfego em cerca de 25 s (3 falhas de cerca de 8 s), não em 15 s (3 × 5 s). O worker não tem probes: sem servidor HTTP não há o que chamar, e se o processo cair o container reinicia sozinho.
 
 **Logs.** O environment manda o stdout dos containers para o workspace do Log Analytics ([log-analytics-application-insights.md](log-analytics-application-insights.md)), onde vale o teto de 0,2 GB por dia.
 

@@ -24,7 +24,12 @@ The peek fits the Data Receiver role the API already has on `payment-events` for
 
 The receiver shares the AMQP connection of the singleton `ServiceBusClient`. When the API starts from zero replicas, the readiness probe opens that connection and gets the token before the first webhook is routed to the replica, instead of the first publish doing it inside Stripe's request (pending item of task 1.4). The receiver is disposed after each check; the connection stays.
 
-The client's retry options (2 retries, 2 s `TryTimeout`) apply to the peek too, so an unreachable namespace takes up to about 8 s to fail. The probe's `timeoutSeconds` is 10 for that reason (see `docs/azure/container-apps.md`).
+The client's retry options (2 retries, 2 s `TryTimeout`) apply to the peek too, so an unreachable namespace takes up to about 8 s to fail. The probe's `timeoutSeconds` is 10 for that reason (see `docs/azure/container-apps.md`). The cost is slower detection: the probes run one after the other, so with a period of 5 s and 3 failures the replica leaves traffic about 25 s into an outage, not 15 s. With at most one API replica, an unready replica and a `500` mean the same to Stripe, which resends. A shorter timeout would instead fail the first peek of a cold start, which also gets the token and opens the connection.
+
+The task 4.7 code review raised two more points, both left as they are:
+
+- **A cached receiver** instead of one per check: attaching a link is not billed and the peek is one operation either way, while a cached receiver needs a singleton lifetime. `ServiceBusDeadLetterQueue.PeekAsync` also opens a receiver per call.
+- **Log volume during an outage:** `HealthCheckService` logs each failed check as an `Error` with the exception, every 5 s per replica. That belongs to the log-level work of task 5.6 (`docs/pending.md`).
 
 ## Live and ready
 
