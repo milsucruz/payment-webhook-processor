@@ -29,14 +29,17 @@ if (-not $principalId) {
     $principalId = az ad sp create --id $appId --query id -o tsv
 }
 
+$subjectPrefix = gh api "repos/$Repository/actions/oidc/customization/sub" --jq '.sub_claim_prefix'
+$credential = Write-JsonFile @{
+    name      = 'main'
+    issuer    = 'https://token.actions.githubusercontent.com'
+    subject   = "${subjectPrefix}:ref:refs/heads/main"
+    audiences = @('api://AzureADTokenExchange')
+}
 $credentialNames = az ad app federated-credential list --id $appId --query '[].name' -o tsv
-if ($credentialNames -notcontains 'main') {
-    $credential = Write-JsonFile @{
-        name      = 'main'
-        issuer    = 'https://token.actions.githubusercontent.com'
-        subject   = "repo:${Repository}:ref:refs/heads/main"
-        audiences = @('api://AzureADTokenExchange')
-    }
+if ($credentialNames -contains 'main') {
+    az ad app federated-credential update --id $appId --federated-credential-id main --parameters $credential | Out-Null
+} else {
     az ad app federated-credential create --id $appId --parameters $credential | Out-Null
 }
 

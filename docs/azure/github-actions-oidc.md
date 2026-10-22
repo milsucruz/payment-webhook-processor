@@ -12,7 +12,9 @@ Três peças:
 | --- | --- | --- |
 | **App registration** | A "conta" do pipeline no Entra ID, com um *client ID* | `github-payment-webhook-processor` |
 | **Service principal** | A presença dessa conta no diretório, que recebe os papéis do RBAC | Criado junto com o app registration |
-| **Credencial federada** | A regra "aceito tokens do GitHub com este `subject`" | `repo:milsucruz/payment-webhook-processor:ref:refs/heads/main` |
+| **Credencial federada** | A regra "aceito tokens do GitHub com este `subject`" | `repo:milsucruz@103121417/payment-webhook-processor@1414394226:ref:refs/heads/main` |
+
+**Subject com IDs imutáveis.** O repositório usa o formato padrão atual do GitHub (`use_immutable_subject: true`): o `subject` leva o ID numérico do dono (`103121417`) e o do repositório (`1414394226`) depois de cada nome. Assim, se o repositório fosse apagado e outra pessoa criasse um com o mesmo nome, o token dela teria outro ID e não entraria. O `setup-oidc.ps1` lê o prefixo de `gh api repos/<repo>/actions/oidc/customization/sub` (campo `sub_claim_prefix`) em vez de fixar os números. A tarefa 4.8 descobriu isso no ensaio: a credencial com o formato antigo (`repo:milsucruz/payment-webhook-processor:...`) recusou o login com `AADSTS700213`.
 
 ## 2. Equivalente local
 
@@ -76,7 +78,8 @@ Um push numa branch qualquer ou um pull request gera um token com outro `subject
 | --- | --- |
 | OIDC | Protocolo de identidade sobre OAuth 2.0; aqui, o token que o GitHub emite para cada execução |
 | Issuer | Quem emite o token: `https://token.actions.githubusercontent.com` |
-| Subject (`sub`) | Quem o token diz ser: `repo:<dono>/<repo>:ref:refs/heads/main` |
+| Subject (`sub`) | Quem o token diz ser: `repo:<dono>@<id>/<repo>@<id>:ref:refs/heads/main` |
+| Subject imutável | Formato do `sub` com os IDs numéricos do dono e do repositório, que não mudam com renomeação nem são reaproveitados |
 | Audience (`aud`) | Para quem o token é: `api://AzureADTokenExchange` |
 | Credencial federada | Regra no app registration que aceita um issuer, subject e audience exatos |
 | App registration | O registro de uma aplicação no Entra ID; dá o client ID |
@@ -89,7 +92,7 @@ Um push numa branch qualquer ou um pull request gera um token com outro `subject
 
 ## 7. O que pode dar errado e quanto custa errar
 
-- **Subject errado:** o login falha com `AADSTS700213: No matching federated identity record found`. Custo: nenhum. O erro mostra o subject recebido; basta compará-lo com a credencial.
+- **Subject errado:** o login falha com `AADSTS700213: No matching federated identity record found`. Custo: nenhum. O erro mostra o subject recebido; basta compará-lo com a credencial. Aconteceu na 4.8: a credencial tinha o formato sem IDs, e o GitHub emite o imutável.
 - **Credencial larga demais:** um subject de outro repositório ou de qualquer branch daria o grupo de recursos a quem empurrar código ali. Mantemos só `main` e apagamos a credencial temporária do ensaio. Conferir com `az ad app federated-credential list`.
 - **RBAC Administrator sem condição:** o pipeline poderia se dar Owner na assinatura? Não, o escopo é o grupo, mas poderia se dar Owner no grupo, ou dar papéis de dados a qualquer um. A condição é o que impede.
 - **Papel novo no Bicep:** se uma tarefa futura atribuir um papel fora da lista (por exemplo, Monitoring Metrics Publisher, pendência 4.4), o deploy falha com `AuthorizationFailed` até a condição e a seção 8 ganharem o papel.

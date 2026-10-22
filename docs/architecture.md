@@ -360,7 +360,7 @@ The dashboard is public and read-only, because all the data is test data. Action
 
 ### Secretless pipeline
 
-GitHub Actions authenticates to Azure via OIDC, with a federated credential restricted to the repository and the `main` branch, on an app registration rather than a managed identity, so the identity lives outside the resource group it deploys and survives recreating it. No long-lived secret is stored in GitHub: the repository holds only the variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_SUBSCRIPTION_ID`, which are identifiers, and pushes to GHCR use the workflow's own short-lived `GITHUB_TOKEN`. Pull request runs don't match that credential, so `ci.yml` never signs in to Azure; everything that needs Azure, `what-if` included, runs in `deploy.yml`.
+GitHub Actions authenticates to Azure via OIDC, with a federated credential restricted to the repository and the `main` branch, on an app registration. The credential's subject uses GitHub's immutable format, with the owner's and the repository's numeric IDs (`repo:<owner>@<id>/<repo>@<id>:ref:refs/heads/main`), so a repository recreated under the same name doesn't inherit the access. The identity is an app registration rather than a managed identity, so the identity lives outside the resource group it deploys and survives recreating it. No long-lived secret is stored in GitHub: the repository holds only the variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_SUBSCRIPTION_ID`, which are identifiers, and pushes to GHCR use the workflow's own short-lived `GITHUB_TOKEN`. Pull request runs don't match that credential, so `ci.yml` never signs in to Azure; everything that needs Azure, `what-if` included, runs in `deploy.yml`.
 
 ## 9. Observability
 
