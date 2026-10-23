@@ -54,6 +54,8 @@ sequenceDiagram
 
 Exemplo: se o worker cair entre o commit e o `complete`, o lock de 60 s vence, a mensagem volta e é entregue de novo; o inbox reconhece o `evt_...` e descarta o duplicado. Depois de 5 entregas sem sucesso a mensagem vai para a dead-letter com motivo `MaxDeliveryCountExceeded`.
 
+O lock só espaça as entregas quando o worker cai. Quando o worker desiste de um erro transitório, ele faz *abandon*, que libera o lock na hora, e a próxima entrega começa em seguida. Por isso o tempo que uma mensagem aguenta com o banco fora é o das esperas entre retries dentro de cada entrega (1 s, 5 s e 15 s), vezes 5 entregas, e não o lock de 60 s (tarefa 4.10, [ADR 0011](../adr/0011-transient-retry-window.md)).
+
 ## 6. Glossário
 
 | Termo | Significado |

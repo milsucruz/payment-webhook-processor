@@ -6,9 +6,9 @@ Documentos em português (exceção à regra de inglês de `docs/`, ver "Modo Pr
 
 | Documento | Serviço | Usado em |
 | --- | --- | --- |
-| [service-bus.md](service-bus.md) | Azure Service Bus (Basic) | 4.2, 4.6, 4.7 |
+| [service-bus.md](service-bus.md) | Azure Service Bus (Basic) | 4.2, 4.6, 4.7, 4.10 |
 | [managed-identity-rbac.md](managed-identity-rbac.md) | Identidade gerenciada e RBAC | 4.2, 4.3, 4.6, 4.8 |
-| [azure-sql.md](azure-sql.md) | Azure SQL Database (oferta gratuita) | 4.3, 4.6 |
+| [azure-sql.md](azure-sql.md) | Azure SQL Database (oferta gratuita) | 4.3, 4.6, 4.10 |
 | [key-vault.md](key-vault.md) | Azure Key Vault | 4.4, 4.5, 4.9 |
 | [container-apps.md](container-apps.md) | Azure Container Apps (Consumption) | 4.5, 4.6, 4.7, 4.8 |
 | [log-analytics-application-insights.md](log-analytics-application-insights.md) | Log Analytics e Application Insights | 4.4, 5.6, 5.7 |
@@ -26,6 +26,7 @@ Documentos em português (exceção à regra de inglês de `docs/`, ver "Modo Pr
 | [tasks/4.7-escala-e-probes.md](tasks/4.7-escala-e-probes.md) | 4.7 Regra de escala e probes |
 | [tasks/4.8-pipeline-de-deploy.md](tasks/4.8-pipeline-de-deploy.md) | 4.8 Pipeline de deploy com OIDC |
 | [tasks/4.9-endpoint-do-stripe.md](tasks/4.9-endpoint-do-stripe.md) | 4.9 Endpoint do Stripe e segredo no Key Vault |
+| [tasks/4.10-janela-de-retry.md](tasks/4.10-janela-de-retry.md) | 4.10 Janela de retry que sobrevive à retomada do banco |
 
 A tarefa 4.1 (conta, orçamento e grupo de recursos) foi feita à mão no portal e não tem Bicep para comentar; ficou registrada no "Session log" de `docs/tasks.md`.
 

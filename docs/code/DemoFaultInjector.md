@@ -15,7 +15,7 @@ Task InjectAsync(PaymentEvent paymentEvent, int attempt, CancellationToken cance
 | `demo_fault` | What happens | Effect on the message |
 | --- | --- | --- |
 | absent | Nothing | Normal processing |
-| `transient` | Attempts 1 and 2 throw `TimeoutException`; attempt 3 and later pass | Retried after 200 ms and 1 s, applied on the third attempt, completed on the first delivery |
+| `transient` | Attempts 1 and 2 throw `TimeoutException`; attempt 3 and later pass | Retried after 1 s and 5 s (200 ms and 1 s until task 4.10), applied on the third attempt, completed on the first delivery |
 | `poison` | Every attempt throws `InvalidOperationException` | Leaves the use case, the SDK abandons it, and after 5 deliveries Service Bus dead-letters it with `MaxDeliveryCountExceeded` |
 | `slow` | Attempt 1 waits 10 s with the injected `TimeProvider`, then goes on; later attempts don't wait | Applied about 10 s late, with the real commit time recorded; with 4 concurrent calls per replica, a batch of them keeps the queue long enough for scaling |
 | anything else | Nothing, plus a warning on attempt 1 naming the value and the event | Normal processing |
@@ -48,7 +48,7 @@ The default is off, so a worker run outside compose, and the cloud until a task 
 
 Unit tests: `tests/Payments.Infrastructure.Tests/Faults/DemoFaultInjectorTests.cs` checks each value against the real `SqlTransientErrorDetector` (transient on attempts 1 and 2, not on 3; poison never transient; slow not done after 9 s, done after 10 s with `FakeTimeProvider`, and no wait on attempts 2 and 4; absent and unknown values do nothing, and an unknown value logs once). `ProcessStripeEventTests` checks that the use case passes attempts 1, 2, 3 to the injector and opens a transaction only for the attempt that passes, that time spent in the injector shows in `ReceivedAt`, `UpdatedAt` and `OccurredAt`, that a concurrency retry is a new attempt, and that an exception that is not transient opens no transaction and writes nothing. Changing `attempt <= 2` to `attempt < 2` fails the transient test, and moving the injector back after `GetUtcNow` fails the time test.
 
-End to end, with `docker compose up -d`, `stripe listen` and `stripe trigger payment_intent.succeeded ... --add "payment_intent:metadata[demo_fault]=transient"`: both events of the payment logged the injected fault on attempts 1 and 2, a retry after 200 ms and 1 s, and then `Applied` and `IgnoredOutOfOrder`. The payment ended paid, with two inbox rows. With `=poison`: each event logged the fault on attempt 1 five times, a throwaway peek found both in the dead-letter with `DeliveryCount=5` and `MaxDeliveryCountExceeded`, and the database had no row for that payment. `slow` was checked only by the unit test.
+End to end, with `docker compose up -d`, `stripe listen` and `stripe trigger payment_intent.succeeded ... --add "payment_intent:metadata[demo_fault]=transient"`: both events of the payment logged the injected fault on attempts 1 and 2, a retry after 200 ms and 1 s (the delays until task 4.10), and then `Applied` and `IgnoredOutOfOrder`. The payment ended paid, with two inbox rows. With `=poison`: each event logged the fault on attempt 1 five times, a throwaway peek found both in the dead-letter with `DeliveryCount=5` and `MaxDeliveryCountExceeded`, and the database had no row for that payment. `slow` was checked only by the unit test.
 
 The integration test of the poison message with Testcontainers is task 3.5.
 

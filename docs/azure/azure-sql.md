@@ -36,7 +36,7 @@ flowchart LR
     Dev["Você com az login"] -- "Entra admin" --> DB
 ```
 
-Exemplo: depois de uma hora sem eventos o banco pausa. O próximo evento chega, o worker tenta gravar e a conexão espera o banco retomar. Por isso o lock da fila é de 60 s e o worker repete erros transitórios (seção 6): retomar da pausa parece uma falha de conexão passageira.
+Exemplo: depois de uma hora sem eventos o banco pausa. O próximo evento chega, o worker tenta gravar e a conexão espera o banco retomar (46 a 55 s medidos). Retomar da pausa parece uma falha de conexão passageira, então o worker repete o erro transitório esperando 1 s, 5 s e 15 s (seção 6). Quem segura a mensagem durante a retomada são essas esperas, não o lock de 60 s: se as 4 tentativas falham, o *abandon* libera o lock na hora e a próxima entrega começa em seguida. Com 5 entregas, são 105 s só de espera. A tarefa 4.10 e o [ADR 0011](../adr/0011-transient-retry-window.md) têm a medição.
 
 **Usuários contidos.** O banco não conhece as identidades do Azure até criarmos usuários dentro dele. `infra/sql/create-users.sql` faz `CREATE USER [id-...] WITH SID = <clientId em binário>, TYPE = E`. Usamos o SID em vez de `FROM EXTERNAL PROVIDER` porque o segundo obriga o servidor a consultar o Entra ID, o que exige uma permissão de leitura do diretório no tenant; com o SID o banco não chama o Entra ID.
 
