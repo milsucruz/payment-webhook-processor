@@ -15,7 +15,7 @@ Task InjectAsync(PaymentEvent paymentEvent, int attempt, CancellationToken cance
 | `demo_fault` | What happens | Effect on the message |
 | --- | --- | --- |
 | absent | Nothing | Normal processing |
-| `transient` | Attempts 1 and 2 throw `TimeoutException`; attempt 3 and later pass | Retried after 200 ms and 1 s, applied on the third attempt, completed on the first delivery |
+| `transient` | Attempts 1 and 2 throw `TimeoutException`; attempt 3 and later pass | Retried after 1 s and 5 s (200 ms and 1 s until task 4.10), applied on the third attempt, completed on the first delivery |
 | `poison` | Every attempt throws `InvalidOperationException` | Leaves the use case, the SDK abandons it, and after 5 deliveries Service Bus dead-letters it with `MaxDeliveryCountExceeded` |
 | `slow` | Attempt 1 waits 10 s with the injected `TimeProvider`, then goes on; later attempts don't wait | Applied about 10 s late, with the real commit time recorded; with 4 concurrent calls per replica, a batch of them keeps the queue long enough for scaling |
 | anything else | Nothing, plus a warning on attempt 1 naming the value and the event | Normal processing |

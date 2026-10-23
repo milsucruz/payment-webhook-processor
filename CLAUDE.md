@@ -9,7 +9,7 @@ Recebe webhooks do Stripe em modo de teste, aplica cada evento uma única vez ao
 - `docs/pending.md`: pendências encontradas numa tarefa e fora do escopo dela, com a tarefa em que devem ser resolvidas.
 - `docs/code/`: um documento por classe com a explicação detalhada que não cabe nos comentários do código. Leia o da classe antes de alterá-la.
 - `docs/azure/`: um documento por serviço do Azure e um por tarefa do M4, em português (ver "Modo Professor"). Leia o do serviço antes de mexer nele.
-- `docs/adr/`: decisões de arquitetura, em inglês. A pasta ainda não existe; os ADRs são escritos na tarefa 6.2. Até lá, a fonte das decisões é a seção 12 da arquitetura, que lista as dez.
+- `docs/adr/`: decisões de arquitetura, em inglês. Os números 0001 a 0010 ficam reservados para as dez decisões da seção 12, escritas na tarefa 6.2; até lá, a fonte delas é essa seção. Decisões posteriores numeram a partir de 0011 (a primeira é a 0011, da tarefa 4.10).
 
 | Assunto | Seção de `docs/architecture.md` |
 | --- | --- |
@@ -168,4 +168,4 @@ Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-
 
 ### Domain docs
 
-Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. Neither exists yet: `docs/adr/` arrives in task 6.2, and until then the glossary is "Terms used in this document" in section 1 of `docs/architecture.md`. See `docs/agents/domain.md`.
+Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. `CONTEXT.md` doesn't exist yet: the glossary is "Terms used in this document" in section 1 of `docs/architecture.md`. `docs/adr/` starts at 0011; 0001 to 0010 are reserved for the ten decisions of section 12 (task 6.2). See `docs/agents/domain.md`.

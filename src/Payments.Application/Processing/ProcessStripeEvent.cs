@@ -12,7 +12,7 @@ public class ProcessStripeEvent
     private const int MaxConcurrencyAttempts = 3;
 
     private static readonly IReadOnlyList<TimeSpan> transientRetryDelays =
-        [TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5)];
+        [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15)];
 
     private readonly IPaymentStore paymentStore;
     private readonly ITransientErrorDetector transientErrorDetector;

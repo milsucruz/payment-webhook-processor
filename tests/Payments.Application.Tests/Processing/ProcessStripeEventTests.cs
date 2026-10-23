@@ -210,7 +210,7 @@ public class ProcessStripeEventTests
         this.store.CommitExceptions.Enqueue(new TransientTestException());
         this.store.CommitExceptions.Enqueue(new TransientTestException());
 
-        ProcessStripeEventResult result = await this.ProcessThroughDelays(payload, TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(1));
+        ProcessStripeEventResult result = await this.ProcessThroughDelays(payload, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5));
 
         Assert.Equal(new ProcessStripeEventResult(ProcessStripeEventOutcome.Applied), result);
         Assert.Equal(3, this.store.TransactionsStarted);
@@ -233,9 +233,9 @@ public class ProcessStripeEventTests
 
         ProcessStripeEventResult result = await this.ProcessThroughDelays(
             payload,
-            TimeSpan.FromMilliseconds(200),
             TimeSpan.FromSeconds(1),
-            TimeSpan.FromSeconds(5));
+            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(15));
 
         Assert.Equal(ProcessStripeEventOutcome.TransientFailure, result.Outcome);
         Assert.Contains(paymentEvent.EventId, result.Reason, StringComparison.Ordinal);
@@ -254,7 +254,7 @@ public class ProcessStripeEventTests
         using CancellationTokenSource cancellation = new();
 
         Task<ProcessStripeEventResult> processing = this.Process(payload, cancellation.Token);
-        Assert.Equal(TimeSpan.FromMilliseconds(200), await this.timeProvider.WaitForDelay());
+        Assert.Equal(TimeSpan.FromSeconds(1), await this.timeProvider.WaitForDelay());
         await cancellation.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => processing);
@@ -281,7 +281,7 @@ public class ProcessStripeEventTests
         this.store.CommitExceptions.Enqueue(new TransientTestException());
         this.store.ConcurrencyConflictsToReport = 2;
 
-        ProcessStripeEventResult result = await this.ProcessThroughDelays(payload, TimeSpan.FromMilliseconds(200));
+        ProcessStripeEventResult result = await this.ProcessThroughDelays(payload, TimeSpan.FromSeconds(1));
 
         Assert.Equal(new ProcessStripeEventResult(ProcessStripeEventOutcome.Applied), result);
         Assert.Equal(4, this.store.TransactionsStarted);
@@ -296,7 +296,7 @@ public class ProcessStripeEventTests
         this.faultInjector.Exceptions.Enqueue(new TransientTestException());
         this.faultInjector.Exceptions.Enqueue(new TransientTestException());
 
-        ProcessStripeEventResult result = await this.ProcessThroughDelays(payload, TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(1));
+        ProcessStripeEventResult result = await this.ProcessThroughDelays(payload, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5));
 
         Assert.Equal(new ProcessStripeEventResult(ProcessStripeEventOutcome.Applied), result);
         Assert.Equal([(paymentEvent.EventId, 1), (paymentEvent.EventId, 2), (paymentEvent.EventId, 3)], this.faultInjector.Calls);
