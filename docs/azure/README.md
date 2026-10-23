@@ -25,6 +25,7 @@ Documentos em português (exceção à regra de inglês de `docs/`, ver "Modo Pr
 | [tasks/4.6-identidade-gerenciada-nas-conexoes.md](tasks/4.6-identidade-gerenciada-nas-conexoes.md) | 4.6 Identidade gerenciada nas conexões |
 | [tasks/4.7-escala-e-probes.md](tasks/4.7-escala-e-probes.md) | 4.7 Regra de escala e probes |
 | [tasks/4.8-pipeline-de-deploy.md](tasks/4.8-pipeline-de-deploy.md) | 4.8 Pipeline de deploy com OIDC |
+| [tasks/4.9-endpoint-do-stripe.md](tasks/4.9-endpoint-do-stripe.md) | 4.9 Endpoint do Stripe e segredo no Key Vault |
 
 A tarefa 4.1 (conta, orçamento e grupo de recursos) foi feita à mão no portal e não tem Bicep para comentar; ficou registrada no "Session log" de `docs/tasks.md`.
 

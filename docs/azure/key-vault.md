@@ -56,6 +56,7 @@ Exemplo: na tarefa 4.5 o Container App da API declara `Admin__ApiKey` como refer
 - **Nome em uso:** o nome tem no máximo 24 caracteres e é global. Apagar o grupo de recursos deixa o cofre em soft delete, e recriar o ambiente com o mesmo nome falha com `VaultAlreadyExists` até `az keyvault purge`. Custo: tempo, não dinheiro.
 - **Sem acesso ao próprio cofre:** ser Owner da assinatura não permite ler segredos; sem o papel de Officer o `secret set` devolve `Forbidden`.
 - **Segredo no terminal:** o valor aparece no histórico do shell e na saída se for impresso. Grave por variável ou arquivo temporário e não cole em chat ou commit.
+- **Segredo novo, API com o antigo:** o Container Apps guarda o valor lido do cofre e só o relê sozinho em até cerca de 30 min. Na tarefa 4.9, um `revision restart` logo depois do `secret set` subiu com o valor anterior e o Stripe recebeu `400` por assinatura inválida. O que funcionou: regravar a mesma referência com `az containerapp secret set` (força a releitura) e só então reiniciar a revisão. `infra/stripe/register-webhook.ps1` faz isso. Custo: entregas rejeitadas, que o Stripe reenvia.
 - **Purge protection:** ligar é irreversível. Não ligamos.
 - **Cobrança:** centavos. O risco real é vazar o segredo, não gastar.
 
