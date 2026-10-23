@@ -84,6 +84,7 @@ Exemplo concreto: se o Service Bus cair, o `ready` falha e o ingress para de man
 | Job | Container que roda e termina; gatilho manual, agendado ou por evento |
 | Revision | Uma versão imutável do app; mudar imagem ou configuração cria outra |
 | Ingress | A porta de entrada HTTP; `external` dá URL pública com HTTPS |
+| `X-Forwarded-For` | Cabeçalho em que o ingress acrescenta, no fim, o IP de quem chamou; para o container, a conexão vem do proxy. A API lê só o último valor (tarefa 4.9) |
 | Replica | Uma cópia em execução |
 | Scale to zero | Mínimo de réplicas igual a 0: sem tráfego, nada roda e nada cobra |
 | Consumption | Plano que cobra por uso |
@@ -107,7 +108,7 @@ Exemplo concreto: se o Service Bus cair, o `ready` falha e o ingress para de man
 - **Regra de escala sem identidade ou com versão de API antiga:** o worker não acorda e as mensagens ficam paradas na fila (até expirar em 14 dias e ir para a dead-letter). Sem custo, mas sem processamento. Conferir com `az containerapp show` que `rules` aparece.
 - **Mensagens paradas mantêm o worker acordado:** a regra conta mensagens ativas; enquanto houver uma, o mínimo é 1 réplica, o tempo todo. A dead-letter não conta, então uma mensagem envenenada não segura o worker de pé.
 - **Liveness testando dependência externa:** se o `/health/live` testasse o Service Bus, uma queda dele reiniciaria a API em loop. Por isso só o `ready` testa.
-- **Cold start:** a primeira requisição com a API em zero esperou 27,7 s na tarefa 4.7, cerca de 19 s da plataforma (agendar a réplica e baixar a imagem). O remédio, mínimo de 1 réplica, gasta a cota o mês inteiro; fica para a 4.9 decidir com entregas reais do Stripe.
+- **Cold start:** a primeira requisição com a API em zero esperou 27,7 s na tarefa 4.7, cerca de 19 s da plataforma (agendar a réplica e baixar a imagem). Na 4.9, com entregas reais, o Stripe não esperou: de dois eventos com a API em zero, um entrou e o outro ficou para o reenvio do Stripe (cerca de 1 h depois). O remédio, mínimo de 1 réplica, custaria cerca de US$ 4 por mês depois da cota gratuita; ficou em zero, e antes de uma demo um `curl .../health/live` aquece a API.
 - **Apagar o environment:** apaga os apps e jobs dentro dele; recriar é rodar o Bicep de novo.
 - **A API é pública:** qualquer um chega ao `/webhooks/stripe`; a defesa é a assinatura e o limitador de taxa (seção 8).
 

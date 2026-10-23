@@ -158,6 +158,30 @@ public class StripeWebhooksControllerTests : IClassFixture<WebApplicationFactory
     }
 
     [Fact]
+    public async Task Each_forwarded_client_ip_has_its_own_rate_limit()
+    {
+        HttpClient client = this.CreateClient(new RecordingEventPublisher(), permitLimit: 1);
+        await client.SendAsync(ForwardedRequest("203.0.113.1"));
+
+        HttpResponseMessage sameClient = await client.SendAsync(ForwardedRequest("203.0.113.1"));
+        HttpResponseMessage otherClient = await client.SendAsync(ForwardedRequest("203.0.113.2"));
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, sameClient.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, otherClient.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_forged_forwarded_ip_does_not_get_a_new_rate_limit()
+    {
+        HttpClient client = this.CreateClient(new RecordingEventPublisher(), permitLimit: 1);
+        await client.SendAsync(ForwardedRequest("198.51.100.1, 203.0.113.1"));
+
+        HttpResponseMessage forged = await client.SendAsync(ForwardedRequest("198.51.100.2, 203.0.113.1"));
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, forged.StatusCode);
+    }
+
+    [Fact]
     public async Task Rate_limit_applies_only_to_the_webhook()
     {
         HttpClient client = this.CreateClient(new RecordingEventPublisher(), permitLimit: 1);
@@ -217,6 +241,13 @@ public class StripeWebhooksControllerTests : IClassFixture<WebApplicationFactory
             request.Headers.Add(ClientIpStartupFilter.HeaderName, clientIp);
         }
 
+        return request;
+    }
+
+    private static HttpRequestMessage ForwardedRequest(string forwardedFor)
+    {
+        HttpRequestMessage request = UnsignedRequest(EventJson, "100.100.0.1");
+        request.Headers.Add("X-Forwarded-For", forwardedFor);
         return request;
     }
 

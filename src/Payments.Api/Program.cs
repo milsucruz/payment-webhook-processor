@@ -1,6 +1,7 @@
 using System.Threading.RateLimiting;
 using Azure.Messaging.ServiceBus;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Payments.Api.Authorization;
@@ -68,6 +69,13 @@ builder.Services.AddOptions<WebhookRateLimitOptions>()
     .Validate(options => options.PermitLimit > 0, "WebhookRateLimit:PermitLimit must be positive.")
     .Validate(options => options.Window > TimeSpan.Zero, "WebhookRateLimit:Window must be positive.")
     .ValidateOnStart();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+    options.ForwardLimit = 1;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -104,6 +112,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI(options => options.SwaggerEndpoint("/openapi/v1.json", "Payments API"));
 }
 
+app.UseForwardedHeaders();
 app.UseRouting();
 app.UseRateLimiter();
 
