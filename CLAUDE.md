@@ -141,6 +141,7 @@ $env:SQL_ADMIN_LOGIN = "<seu UPN>"; $env:SQL_ADMIN_OBJECT_ID = "<seu object id>"
 pwsh infra/pipeline/setup-oidc.ps1   # identidade do pipeline: app registration, credencial federada de main, Contributor e RBAC Admin condicionado no grupo, variáveis AZURE_* no GitHub; idempotente, rode de novo depois de recriar o grupo
 pwsh infra/stripe/register-webhook.ps1   # registra o endpoint da nuvem no sandbox do Stripe (7 eventos, API 2026-09-30.endive), grava o whsec_ no Key Vault e reinicia a API; para se o endpoint já existir (o Stripe só mostra o segredo na criação): apague-o com stripe webhook_endpoints delete <we_...> e rode de novo
 stripe webhook_endpoints update <we_...> -d disabled=true   # para de mandar eventos à nuvem (o stripe trigger local também vai para lá); disabled=false religa
+az role assignment create --role "Key Vault Secrets Officer" --assignee <seu object id> --scope $(az keyvault list -g rg-payment-webhooks --query "[0].id" -o tsv)   # libera o az keyvault secret set para você; feito à mão porque a condição do pipeline não permite esse papel; refaça depois de recriar o grupo
 az sql server firewall-rule create -g rg-payment-webhooks -s <servidor> -n developer --start-ip-address <seu IP> --end-ip-address <seu IP>   # libera o seu IP no banco da nuvem
 pwsh infra/sql/create-users.ps1 -ResourceGroup rg-payment-webhooks -ServerName <servidor> -SqlCmd <caminho do go-sqlcmd>   # cria os usuários das identidades no banco; precisa do go-sqlcmd (winget install sqlcmd) e de az login como admin Entra
 ```
