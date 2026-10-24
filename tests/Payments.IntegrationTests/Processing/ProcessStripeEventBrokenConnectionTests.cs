@@ -63,7 +63,7 @@ public class ProcessStripeEventBrokenConnectionTests : IAsyncLifetime
     {
         await using PaymentsDbContext processingContext = this.CreateDbContext();
         PausingPaymentStore store = new(processingContext, this.container, rollBackOnDispose);
-        ProcessStripeEvent processStripeEvent = new(store, new SqlTransientErrorDetector(), new NoFaultInjector(), TimeProvider.System, NullLogger<ProcessStripeEvent>.Instance);
+        ProcessStripeEvent processStripeEvent = new(store, new SqlTransientErrorDetector(), new NoFaultInjector(), new DiscardingNotificationPublisher(), TimeProvider.System, NullLogger<ProcessStripeEvent>.Instance);
 
         ProcessStripeEventResult result = await processStripeEvent.ExecuteAsync(Payload, CancellationToken.None);
 

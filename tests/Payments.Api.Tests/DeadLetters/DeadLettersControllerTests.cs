@@ -83,6 +83,7 @@ public class DeadLettersControllerTests : IClassFixture<WebApplicationFactory<Pr
                 builder.UseSetting("Stripe:WebhookSecret", "whsec_test_secret");
                 builder.UseSetting("ServiceBus:ConnectionString", "Endpoint=sb://localhost;SharedAccessKeyName=test;SharedAccessKey=test");
                 builder.UseSetting("ServiceBus:EventsQueueName", "payment-events");
+                builder.UseSetting("ServiceBus:NotificationsQueueName", "payment-notifications");
                 builder.UseSetting("ConnectionStrings:Payments", "Server=localhost;Database=Payments");
                 builder.UseSetting("Admin:ApiKey", AdminKey);
                 builder.ConfigureTestServices(services => services.AddSingleton(queue));

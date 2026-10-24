@@ -19,7 +19,7 @@ The adapter between the `payment-events` queue and `ProcessStripeEvent` (see `do
 | `ConcurrencyConflict` | Abandon | The use case already retried from the read 3 times (`MaxConcurrencyAttempts`) (task 2.6). Losing that many races in a row is unlikely but not a broken assumption, so the message goes back for a later delivery |
 | `TransientFailure` | Abandon | The use case already made 1 attempt plus 3 retries with 21 s of waits (task 3.1, delays from ADR 0011, `docs/code/ProcessStripeEvent.md`). The database is still unreachable, so the message goes back and Service Bus delivers it again, up to 5 times. Not a permanent error |
 
-`CompleteMessageAsync` only runs after `ExecuteAsync` returns, and `ExecuteAsync` only returns those outcomes after the commit. If the worker dies between the two, the message comes back and the inbox turns it into a `Duplicate`.
+`CompleteMessageAsync` only runs after `ExecuteAsync` returns, and `ExecuteAsync` only returns those outcomes after the commit. If the worker dies between the two, the message comes back and the inbox turns it into a `Duplicate`. Since task 5.2 the use case also publishes the notification before returning, so it goes out after the commit and before the completion (see "Notification" in `docs/code/ProcessStripeEvent.md`).
 
 ## Permanent errors go straight to the dead-letter
 

@@ -1,28 +1,31 @@
 using System.Reflection;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Hosting;
+using Payments.Api.Notifications;
 
 namespace Payments.Api.Tests;
 
 public class ControllerDependencyTests
 {
     [Fact]
-    public void Controllers_do_not_depend_on_infrastructure_types()
+    public void Controllers_and_the_notification_listener_do_not_depend_on_infrastructure_types()
     {
-        List<Type> controllers = typeof(Program).Assembly.GetTypes()
-            .Where(type => type.IsSubclassOf(typeof(ControllerBase)))
+        List<Type> adapters = typeof(Program).Assembly.GetTypes()
+            .Where(type => type.IsSubclassOf(typeof(ControllerBase)) || type.IsSubclassOf(typeof(BackgroundService)))
             .ToList();
 
-        List<string> forbidden = controllers
-            .SelectMany(controller => controller.GetConstructors()
+        List<string> forbidden = adapters
+            .SelectMany(adapter => adapter.GetConstructors()
                 .SelectMany(constructor => constructor.GetParameters())
                 .Select(parameter => parameter.ParameterType)
-                .Concat(controller.GetFields(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+                .Concat(adapter.GetFields(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
                     .Select(field => field.FieldType))
                 .Where(type => type.Assembly.GetName().Name == "Payments.Infrastructure")
-                .Select(type => $"{controller.Name} -> {type.FullName}"))
+                .Select(type => $"{adapter.Name} -> {type.FullName}"))
             .ToList();
 
-        Assert.NotEmpty(controllers);
+        Assert.Contains(adapters, adapter => adapter.IsSubclassOf(typeof(ControllerBase)));
+        Assert.Contains(typeof(PaymentNotificationsListener), adapters);
         Assert.Empty(forbidden);
     }
 }

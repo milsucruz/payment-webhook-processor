@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Payments.Application.Processing;
+using Payments.Application.Tests.Notifications;
 using Payments.Domain;
 
 namespace Payments.Application.Tests.Processing;
@@ -137,7 +138,7 @@ public class ProcessStripeEventPropertyTests
     private static async Task<ResultingState> Deliver(StripeEvent[] deliveries)
     {
         InMemoryPaymentStore store = new();
-        ProcessStripeEvent processStripeEvent = new(store, new TestTransientErrorDetector(), new TestFaultInjector(), new DelayTrackingTimeProvider(processedAt), NullLogger<ProcessStripeEvent>.Instance);
+        ProcessStripeEvent processStripeEvent = new(store, new TestTransientErrorDetector(), new TestFaultInjector(), new RecordingNotificationPublisher(), new DelayTrackingTimeProvider(processedAt), NullLogger<ProcessStripeEvent>.Instance);
 
         foreach (StripeEvent delivery in deliveries)
         {

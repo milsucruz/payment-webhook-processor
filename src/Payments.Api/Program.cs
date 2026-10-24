@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Payments.Api.Authorization;
+using Payments.Api.Notifications;
 using Payments.Api.RateLimiting;
 using Payments.Application.DeadLetters;
 using Payments.Application.Messaging;
@@ -32,6 +33,7 @@ builder.Services.AddOptions<ServiceBusOptions>()
     .BindConfiguration(ServiceBusOptions.SectionName)
     .Validate(options => options.HasSingleEndpoint, "Set exactly one of ServiceBus:ConnectionString and ServiceBus:FullyQualifiedNamespace.")
     .Validate(options => !string.IsNullOrWhiteSpace(options.EventsQueueName), "ServiceBus:EventsQueueName is required.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.NotificationsQueueName), "ServiceBus:NotificationsQueueName is required.")
     .ValidateOnStart();
 builder.Services.AddSingleton(serviceProvider =>
 {
@@ -59,6 +61,22 @@ builder.Services.AddSingleton<IDeadLetterQueue>(serviceProvider => new ServiceBu
     serviceProvider.GetRequiredService<ServiceBusClient>(),
     serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value.EventsQueueName,
     serviceProvider.GetRequiredService<IEventPublisher>()));
+
+builder.Services.AddKeyedSingleton(PaymentNotificationsListener.ServiceKey, (serviceProvider, _) =>
+    ServiceBusClientFactory.Create(serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value));
+builder.Services.AddKeyedSingleton(PaymentNotificationsListener.ServiceKey, (serviceProvider, key) =>
+{
+    ServiceBusProcessorOptions processorOptions = new()
+    {
+        ReceiveMode = ServiceBusReceiveMode.ReceiveAndDelete,
+        MaxConcurrentCalls = 1,
+    };
+
+    return serviceProvider.GetRequiredKeyedService<ServiceBusClient>(key).CreateProcessor(
+        serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value.NotificationsQueueName,
+        processorOptions);
+});
+builder.Services.AddHostedService<PaymentNotificationsListener>();
 
 string? paymentsConnectionString = builder.Configuration.GetConnectionString("Payments");
 if (string.IsNullOrWhiteSpace(paymentsConnectionString))
