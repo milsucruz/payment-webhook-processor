@@ -46,6 +46,7 @@ public sealed class PaymentsDbContext : DbContext
             entity.Property(payment => payment.Currency).HasMaxLength(3).IsUnicode(false).IsFixedLength();
             entity.Property(payment => payment.LastEventId).HasMaxLength(64).IsUnicode(false);
             entity.Property<byte[]>("RowVersion").IsRowVersion().IsRequired();
+            entity.HasIndex(payment => new { payment.UpdatedAt, payment.PaymentIntentId });
         });
 
         modelBuilder.Entity<PaymentHistoryEntry>(entity =>

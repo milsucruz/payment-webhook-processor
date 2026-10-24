@@ -494,7 +494,7 @@ The solution follows a lean Clean Architecture: the domain knows nothing about A
 | Project | Contents |
 | --- | --- |
 | `src/Payments.Domain` | `Payment`, `PaymentStatus`, transition table and transition result; no dependencies |
-| `src/Payments.Application` | `ReceiveStripeEvent`, `ProcessStripeEvent`, `ListDeadLetters` and `ReprocessDeadLetter` use cases, and the signature verifier, event publisher, payment store (inbox, payments and history in one transaction), transient error detector, fault injector, dead-letter queue and notification ports |
+| `src/Payments.Application` | `ReceiveStripeEvent`, `ProcessStripeEvent`, `ListDeadLetters`, `ReprocessDeadLetter`, `ListPayments` and `GetPayment` use cases, and the signature verifier, event publisher, payment store (inbox, payments and history in one transaction), payment reader, transient error detector, fault injector, dead-letter queue and notification ports |
 | `src/Payments.Infrastructure` | EF Core, Service Bus, Stripe signature validation and OpenTelemetry configuration |
 | `src/Payments.Api` | Controllers, hub, notification consumer and dashboard files |
 | `src/Payments.Worker` | `BackgroundService` with the `ServiceBusProcessor` |
@@ -504,7 +504,7 @@ The solution follows a lean Clean Architecture: the domain knows nothing about A
 | `infra/` | Bicep |
 | `docs/adr/` | Architecture decisions, in English |
 
-There is no MediatR: the two use cases are plain classes that the controller and the worker call directly, and recent versions of the library have a commercial license.
+There is no MediatR: the use cases are plain classes that the controller and the worker call directly, and recent versions of the library have a commercial license.
 
 The controller and the worker are adapters. They translate HTTP or a queue message into a use case call, and the use case result into a status code or a message settlement. The use cases depend only on ports declared in Application, which Infrastructure implements.
 

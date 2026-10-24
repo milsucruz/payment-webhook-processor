@@ -47,6 +47,7 @@ services:
       Admin__ApiKey: ${ADMIN_API_KEY:?Set ADMIN_API_KEY in .env}
       # The emulator's fixed, public development key, not a secret. The queue name comes from appsettings.Development.json.
       ServiceBus__ConnectionString: "Endpoint=sb://servicebus:5672;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
+      ConnectionStrings__Payments: "Server=sqlserver;Database=Payments;User Id=sa;Password=${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD in .env};TrustServerCertificate=True"
     ports:
       - "8080:8080"
     depends_on:
