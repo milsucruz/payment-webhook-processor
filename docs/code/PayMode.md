@@ -34,4 +34,4 @@ A declined card makes Stripe answer `402`, which Stripe.net raises as `StripeExc
 
 ## Not verified yet
 
-Task 2.8 had no test-mode secret key available, so `pay` was not run against Stripe (see `docs/pending.md`).
+Task 2.8 had no test-mode secret key available, so `pay` was first run against Stripe in the M5 review: the three cards reached the cloud as `Paid`, `Failed` and `RequiresAction` (the authentication card with `allow_redirects=never` does end in `requires_action`). The key must belong to the sandbox where the cloud endpoint is registered; a key of another account creates payments whose webhooks never reach the system.

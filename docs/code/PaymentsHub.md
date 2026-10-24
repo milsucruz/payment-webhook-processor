@@ -28,7 +28,7 @@ SignalR has its own JSON options, separate from the controllers'. Without `AddJs
 
 ## Public, like the read API
 
-The hub has no authentication, like `GET /api/payments` (section 8). It reads nothing from the database, so an open connection doesn't keep the free database awake (the read API's open question in `docs/pending.md`). A connection does make the API peek `payment-events` every 5 s, but one broadcast serves every client, so the cost doesn't grow with the number of connections.
+The hub has no authentication, like `GET /api/payments` (section 8). It reads nothing from the database, so an open connection doesn't keep the free database awake (the read API's risk, accepted in section 8). A connection does make the API peek `payment-events` every 5 s, but one broadcast serves every client, so the cost doesn't grow with the number of connections. It also keeps the API replica up for as long as it is open (task 5.8, section 7), which task 5.9 handles in the dashboard.
 
 ## Stateful reconnect stays off
 
