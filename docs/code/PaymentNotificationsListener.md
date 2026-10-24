@@ -2,7 +2,7 @@
 
 `src/Payments.Api/Notifications/PaymentNotificationsListener.cs`, with the registration in `src/Payments.Api/Program.cs`.
 
-The adapter between the `payment-notifications` queue and the API (task 5.2, section 4, step 10). The worker publishes a `PaymentNotification` after it commits an event (see "Notification" in `docs/code/ProcessStripeEvent.md`), and this `BackgroundService` receives it. In task 5.2 it only logs the notification at Information: "Received notification for event {EventId} on payment {PaymentIntentId}: {Outcome}". Task 5.3 replaces the log with the hub messages. This document holds the detail that the code leaves out. Keep it in sync when the class changes.
+The adapter between the `payment-notifications` queue and the API (task 5.2, section 4, step 10). The worker publishes a `PaymentNotification` after it commits an event (see "Notification" in `docs/code/ProcessStripeEvent.md`), and this `BackgroundService` receives it. Since task 5.3 it sends `PaymentUpdated` (only when the notification carries the payment) and `EventProcessed` to every client of the hub (`docs/code/PaymentsHub.md`), then logs the notification at Information: "Received notification for event {EventId} on payment {PaymentIntentId}: {Outcome}". The log from task 5.2 stays because it is how the cloud check in `docs/pending.md` sees a notification arrive without a dashboard open, and the volume is one line per event. This document holds the detail that the code leaves out. Keep it in sync when the class changes.
 
 ## Processor options
 
@@ -13,7 +13,7 @@ Set in `Program.cs`, which registers a `ServiceBusClient` and the processor as k
 | Option | Value | Why |
 | --- | --- | --- |
 | `ReceiveMode` | `ReceiveAndDelete` | A notification is disposable (section 3): it expires in 60 s and the dashboard reloads over REST on reconnect. Peek-lock would add a lock, a settlement call per message and up to 5 deliveries of a notification that fails, and a failing one would end in the queue's dead-letter, where messages never expire. With `ReceiveAndDelete` a notification that fails is gone, which is the behavior section 4 already accepts for a lost notification |
-| `MaxConcurrentCalls` | 1 | One operator and one API replica (section 7). The handler does no I/O in task 5.2, and in task 5.3 it sends to the hub. One call keeps the notifications in the order they were received |
+| `MaxConcurrentCalls` | 1 | One operator and one API replica (section 7). The handler only sends to the hub, which is in memory. One call keeps the notifications in the order they were received |
 
 ## No `try`/`catch`
 
@@ -28,7 +28,7 @@ The listener only runs while a replica is up. Container Apps scales the API by H
 `tests/Payments.IntegrationTests/Worker/PaymentNotificationsTests.cs`, in `WorkerFixture`'s collection, so it reuses the emulator and the database:
 
 - `Processed_event_publishes_a_notification_that_expires_in_60_seconds` runs the real worker and reads the notification from the queue: the fields, and `ExpiresAt - EnqueuedTime` of 60 s, which comes from the queue's `DefaultMessageTimeToLive` (the emulator config and `servicebus.bicep`, task 4.2). The publisher sets no time to live of its own, so the queue is the only place to change it.
-- `Processed_event_produces_a_notification_that_the_api_receives` is task 5.2's done criterion: the real worker processes an event and this listener logs its receipt.
+- `tests/Payments.IntegrationTests/Hubs/PaymentsHubTests.cs` runs the real API, so this listener, on the emulator: a client connected to the hub receives `PaymentUpdated` and `EventProcessed` for an event the real worker processed. It replaced task 5.2's `Processed_event_produces_a_notification_that_the_api_receives`, which built the listener by hand and checked only its log: the hub test covers the same path and goes one step further.
 
 The integration project references `Payments.Api` with `Aliases="api"` (`extern alias api;` in the test). The API and the worker both have a global `Program` class, and without the alias `WorkerFixture`'s `Program.AddPaymentEventsWorker` would be ambiguous.
 

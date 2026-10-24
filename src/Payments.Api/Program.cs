@@ -7,10 +7,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Payments.Api.Authorization;
+using Payments.Api.Hubs;
 using Payments.Api.Notifications;
+using Payments.Api.Queues;
 using Payments.Api.RateLimiting;
 using Payments.Application.DeadLetters;
 using Payments.Application.Messaging;
+using Payments.Application.Queues;
 using Payments.Application.Reading;
 using Payments.Application.Webhooks;
 using Payments.Infrastructure.Messaging;
@@ -77,6 +80,20 @@ builder.Services.AddKeyedSingleton(PaymentNotificationsListener.ServiceKey, (ser
         processorOptions);
 });
 builder.Services.AddHostedService<PaymentNotificationsListener>();
+
+builder.Services.AddSignalR()
+    .AddJsonProtocol(options => options.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+builder.Services.AddSingleton<HubConnectionCounter>();
+
+builder.Services.AddSingleton<IQueueStatsReader>(serviceProvider => new ServiceBusQueueStatsReader(
+    serviceProvider.GetRequiredService<ServiceBusClient>(),
+    serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value.EventsQueueName));
+builder.Services.AddSingleton<GetQueueStats>();
+builder.Services.AddOptions<QueueStatsOptions>()
+    .BindConfiguration(QueueStatsOptions.SectionName)
+    .Validate(options => options.Interval > TimeSpan.Zero, "QueueStats:Interval must be positive.")
+    .ValidateOnStart();
+builder.Services.AddHostedService<QueueStatsBroadcaster>();
 
 string? paymentsConnectionString = builder.Configuration.GetConnectionString("Payments");
 if (string.IsNullOrWhiteSpace(paymentsConnectionString))
@@ -152,6 +169,7 @@ app.UseRouting();
 app.UseRateLimiter();
 
 app.MapControllers();
+app.MapHub<PaymentsHub>(PaymentsHub.Route);
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/health/ready");

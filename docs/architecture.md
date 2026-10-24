@@ -135,7 +135,7 @@ An event goes through ten steps between Stripe and the screen, and each step has
 7. In the same transaction, the worker inserts the event into the inbox table with that outcome, then applies or ignores the change and writes the history. The primary key of the inbox is the event ID, so a duplicate fails this insert. The inbox comes after the read because its `Outcome` column needs the decision.
 8. The worker commits the transaction and publishes the notification to the `payment-notifications` queue. A duplicate, which commits nothing, also gets a notification.
 9. Only then does the worker complete the message, which leaves the queue. The notification goes before the completion because the commit is the fact: if the completion fails, the redelivery is a duplicate, and the dashboard would never hear that the event was applied.
-10. The API consumes the notification and sends `PaymentUpdated` to the clients connected to the hub.
+10. The API consumes the notification and sends `PaymentUpdated` and `EventProcessed` to the clients connected to the hub.
 
 ### What happens on each failure
 
@@ -280,8 +280,10 @@ Version 1 uses ASP.NET Core's own SignalR, hosted in the API with a single repli
 | Message | Direction | Content |
 | --- | --- | --- |
 | `PaymentUpdated` | Server to client | ID, state, amounts, currency and date of the last change |
-| `EventProcessed` | Server to client | Event ID and type, outcome (applied, duplicate, ignored) and trace ID |
-| `QueueStats` | Server to client | Active and dead-lettered messages, every 5 s while a client is connected |
+| `EventProcessed` | Server to client | Event ID and type, payment ID, outcome (applied, ignored out of order, redundant, duplicate) and trace ID (from task 5.6, when the worker has tracing) |
+| `QueueStats` | Server to client | Active and dead-lettered messages of `payment-events`, every 5 s while a client is connected |
+
+Enums go out as their names, as in the read API. `QueueStats` counts by peeking, which the API's Data Receiver role allows, and stops at 1000 per count: the exact counts would need the Manage right (Data Owner), which section 8 doesn't give the API.
 
 The client doesn't send commands through the hub. Actions such as reprocessing the dead-letter use the REST API, which is easier to authenticate and test.
 
@@ -495,7 +497,7 @@ The solution follows a lean Clean Architecture: the domain knows nothing about A
 | Project | Contents |
 | --- | --- |
 | `src/Payments.Domain` | `Payment`, `PaymentStatus`, transition table and transition result; no dependencies |
-| `src/Payments.Application` | `ReceiveStripeEvent`, `ProcessStripeEvent`, `ListDeadLetters`, `ReprocessDeadLetter`, `ListPayments` and `GetPayment` use cases, and the signature verifier, event publisher, payment store (inbox, payments and history in one transaction), payment reader, transient error detector, fault injector, dead-letter queue and notification ports |
+| `src/Payments.Application` | `ReceiveStripeEvent`, `ProcessStripeEvent`, `ListDeadLetters`, `ReprocessDeadLetter`, `ListPayments`, `GetPayment` and `GetQueueStats` use cases, and the signature verifier, event publisher, payment store (inbox, payments and history in one transaction), payment reader, transient error detector, fault injector, dead-letter queue, notification and queue stats ports |
 | `src/Payments.Infrastructure` | EF Core, Service Bus, Stripe signature validation and OpenTelemetry configuration |
 | `src/Payments.Api` | Controllers, hub, notification consumer and dashboard files |
 | `src/Payments.Worker` | `BackgroundService` with the `ServiceBusProcessor` |
