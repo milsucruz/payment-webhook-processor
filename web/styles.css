@@ -1,0 +1,122 @@
+:root {
+    --text: #1f2328;
+    --muted: #656d76;
+    --border: #d0d7de;
+    --surface: #f6f8fa;
+    --applied: #1a7f37;
+    --ignored: #9a6700;
+    --error: #cf222e;
+    font-family: system-ui, sans-serif;
+    color: var(--text);
+}
+
+body {
+    margin: 0;
+    background: #fff;
+}
+
+.top-bar {
+    display: flex;
+    gap: 2rem;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.brand {
+    font-weight: 600;
+}
+
+nav a {
+    margin-right: 1rem;
+}
+
+main {
+    max-width: 64rem;
+    margin: 0 auto;
+    padding: 1rem;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th,
+td {
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+}
+
+.number {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.status {
+    padding: 0.1rem 0.5rem;
+    border-radius: 1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    white-space: nowrap;
+}
+
+.summary {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.25rem 1rem;
+}
+
+.summary dd {
+    margin: 0;
+}
+
+.timeline {
+    list-style: none;
+    padding: 0;
+}
+
+.timeline li {
+    margin-bottom: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border-left: 4px solid var(--applied);
+    background: var(--surface);
+}
+
+.timeline li.ignored {
+    border-left-color: var(--ignored);
+}
+
+.timeline-head {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.badge {
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.badge.applied {
+    color: var(--applied);
+}
+
+.badge.ignored {
+    color: var(--ignored);
+}
+
+.muted {
+    color: var(--muted);
+    font-size: 0.875rem;
+}
+
+.error {
+    color: var(--error);
+}
+
+button {
+    margin-top: 1rem;
+}
