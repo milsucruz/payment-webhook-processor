@@ -1,5 +1,5 @@
 import { getPayment } from './api.js';
-import { dateTime, money, statusLabel } from './format.js';
+import { dateTime, money, statusBadge, statusLabel } from './format.js';
 import { el } from './dom.js';
 
 export async function renderPaymentDetail(view, paymentIntentId) {
@@ -19,7 +19,7 @@ export async function renderPaymentDetail(view, paymentIntentId) {
 
     view.append(
         el('dl', { className: 'summary' },
-            el('dt', {}, 'Status'), el('dd', {}, el('span', { className: `status status-${payment.status}` }, statusLabel(payment.status))),
+            el('dt', {}, 'Status'), el('dd', {}, statusBadge(payment.status)),
             el('dt', {}, 'Amount'), el('dd', {}, money(payment.amount, payment.currency)),
             el('dt', {}, 'Refunded'), el('dd', {}, money(payment.amountRefunded, payment.currency)),
             el('dt', {}, 'Created'), el('dd', { title: payment.createdAt }, dateTime(payment.createdAt)),
@@ -34,7 +34,7 @@ function timelineItem(entry) {
         : `${statusLabel(entry.fromStatus)} → ${statusLabel(entry.toStatus)}`;
     const badge = entry.applied
         ? el('span', { className: 'badge applied' }, 'Applied')
-        : el('span', { className: 'badge ignored' }, `Ignored: ${entry.reason}`);
+        : el('span', { className: 'badge ignored' }, entry.reason ? `Ignored: ${entry.reason}` : 'Ignored');
 
     return el('li', { className: entry.applied ? 'applied' : 'ignored' },
         el('div', { className: 'timeline-head' }, badge, el('strong', {}, entry.eventType)),

@@ -1,5 +1,5 @@
 import { listPayments } from './api.js';
-import { dateTime, money, statusLabel } from './format.js';
+import { dateTime, money, statusBadge } from './format.js';
 import { el } from './dom.js';
 
 export function renderPayments(view) {
@@ -15,13 +15,17 @@ export function renderPayments(view) {
             const page = await listPayments(nextCursor);
             rows.append(...page.items.map(paymentRow));
             nextCursor = page.nextCursor;
+            loadMore.textContent = 'Load more';
             loadMore.hidden = nextCursor === null;
+            message.className = '';
             if (rows.childElementCount === 0) {
                 message.textContent = 'No payments yet.';
             }
         } catch (error) {
             message.className = 'error';
             message.textContent = `Could not load the payments: ${error.message}`;
+            loadMore.textContent = 'Retry';
+            loadMore.hidden = false;
         } finally {
             loadMore.disabled = false;
         }
@@ -48,7 +52,7 @@ export function renderPayments(view) {
 function paymentRow(payment) {
     return el('tr', {},
         el('td', {}, el('a', { href: `#/payments/${encodeURIComponent(payment.paymentIntentId)}` }, payment.paymentIntentId)),
-        el('td', {}, el('span', { className: `status status-${payment.status}` }, statusLabel(payment.status))),
+        el('td', {}, statusBadge(payment.status)),
         el('td', { className: 'number' }, money(payment.amount, payment.currency)),
         el('td', { className: 'number' }, money(payment.amountRefunded, payment.currency)),
         el('td', { title: payment.updatedAt }, dateTime(payment.updatedAt)));

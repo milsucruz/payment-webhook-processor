@@ -1,3 +1,5 @@
+import { el } from './dom.js';
+
 const statusLabels = {
     Created: 'Created',
     RequiresAction: 'Requires action',
@@ -11,6 +13,10 @@ const statusLabels = {
 
 export function statusLabel(status) {
     return statusLabels[status] ?? status;
+}
+
+export function statusBadge(status) {
+    return el('span', { className: 'status' }, statusLabel(status));
 }
 
 export function money(amountInMinorUnits, currency) {
