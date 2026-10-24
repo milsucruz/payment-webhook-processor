@@ -1,20 +1,25 @@
+using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Azure.Messaging.ServiceBus;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Payments.Api.Authorization;
 using Payments.Api.RateLimiting;
 using Payments.Application.DeadLetters;
 using Payments.Application.Messaging;
+using Payments.Application.Reading;
 using Payments.Application.Webhooks;
 using Payments.Infrastructure.Messaging;
+using Payments.Infrastructure.Persistence;
 using Payments.Infrastructure.Webhooks;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 builder.Services.AddOptions<StripeOptions>()
     .BindConfiguration(StripeOptions.SectionName)
@@ -55,9 +60,21 @@ builder.Services.AddSingleton<IDeadLetterQueue>(serviceProvider => new ServiceBu
     serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value.EventsQueueName,
     serviceProvider.GetRequiredService<IEventPublisher>()));
 
+string? paymentsConnectionString = builder.Configuration.GetConnectionString("Payments");
+if (string.IsNullOrWhiteSpace(paymentsConnectionString))
+{
+    throw new InvalidOperationException("ConnectionStrings:Payments is required.");
+}
+
+builder.Services.AddDbContext<PaymentsDbContext>(options =>
+    options.UseSqlServer(paymentsConnectionString, sqlServer => sqlServer.EnableRetryOnFailure()));
+builder.Services.AddScoped<IPaymentReader, PaymentReader>();
+
 builder.Services.AddSingleton<ReceiveStripeEvent>();
 builder.Services.AddSingleton<ListDeadLetters>();
 builder.Services.AddSingleton<ReprocessDeadLetter>();
+builder.Services.AddScoped<ListPayments>();
+builder.Services.AddScoped<GetPayment>();
 
 builder.Services.AddOptions<AdminOptions>()
     .BindConfiguration(AdminOptions.SectionName)

@@ -22,53 +22,7 @@ namespace Payments.Infrastructure.Persistence.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
-            modelBuilder.Entity("Payments.Domain.Payment", b =>
-                {
-                    b.Property<string>("PaymentIntentId")
-                        .HasMaxLength(64)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(64)");
-
-                    b.Property<long>("Amount")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("AmountRefunded")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Currency")
-                        .IsRequired()
-                        .HasMaxLength(3)
-                        .IsUnicode(false)
-                        .HasColumnType("char(3)")
-                        .IsFixedLength();
-
-                    b.Property<string>("LastEventId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(64)");
-
-                    b.Property<byte[]>("RowVersion")
-                        .IsConcurrencyToken()
-                        .IsRequired()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("rowversion");
-
-                    b.Property<byte>("Status")
-                        .HasColumnType("tinyint");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.HasKey("PaymentIntentId");
-
-                    b.ToTable("Payments", (string)null);
-                });
-
-            modelBuilder.Entity("Payments.Infrastructure.Persistence.InboxEvent", b =>
+            modelBuilder.Entity("Payments.Application.Processing.InboxEvent", b =>
                 {
                     b.Property<string>("EventId")
                         .HasMaxLength(64)
@@ -113,7 +67,7 @@ namespace Payments.Infrastructure.Persistence.Migrations
                     b.ToTable("InboxEvents", (string)null);
                 });
 
-            modelBuilder.Entity("Payments.Infrastructure.Persistence.PaymentHistoryEntry", b =>
+            modelBuilder.Entity("Payments.Application.Processing.PaymentHistoryEntry", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -155,6 +109,54 @@ namespace Payments.Infrastructure.Persistence.Migrations
                     b.HasIndex("PaymentIntentId");
 
                     b.ToTable("PaymentHistory", (string)null);
+                });
+
+            modelBuilder.Entity("Payments.Domain.Payment", b =>
+                {
+                    b.Property<string>("PaymentIntentId")
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<long>("Amount")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("AmountRefunded")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .IsUnicode(false)
+                        .HasColumnType("char(3)")
+                        .IsFixedLength();
+
+                    b.Property<string>("LastEventId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<byte>("Status")
+                        .HasColumnType("tinyint");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("PaymentIntentId");
+
+                    b.HasIndex("UpdatedAt", "PaymentIntentId");
+
+                    b.ToTable("Payments", (string)null);
                 });
 #pragma warning restore 612, 618
         }

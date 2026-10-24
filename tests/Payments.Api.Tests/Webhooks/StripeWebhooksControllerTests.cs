@@ -207,6 +207,7 @@ public class StripeWebhooksControllerTests : IClassFixture<WebApplicationFactory
                 builder.UseSetting("Stripe:WebhookSecret", Secret);
                 builder.UseSetting("ServiceBus:ConnectionString", "Endpoint=sb://localhost;SharedAccessKeyName=test;SharedAccessKey=test");
                 builder.UseSetting("ServiceBus:EventsQueueName", "payment-events");
+                builder.UseSetting("ConnectionStrings:Payments", "Server=localhost;Database=Payments");
                 builder.UseSetting("Admin:ApiKey", "test-admin-key");
                 builder.ConfigureTestServices(services =>
                 {
