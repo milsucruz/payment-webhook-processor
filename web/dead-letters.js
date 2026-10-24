@@ -12,6 +12,7 @@ export function renderDeadLetters(view, signal) {
     const refresh = el('button', { type: 'button' }, 'Refresh');
     let generation = 0;
     let lastDeadLettered = null;
+    let loadFailed = false;
 
     async function load() {
         const current = ++generation;
@@ -21,6 +22,10 @@ export function renderDeadLetters(view, signal) {
             if (current !== generation) {
                 return;
             }
+            if (loadFailed) {
+                showMessage('', '');
+                loadFailed = false;
+            }
             rows.replaceChildren(...deadLetters.map(deadLetterRow));
             if (deadLetters.length === 0) {
                 rows.append(el('tr', {}, el('td', { colSpan: 7, className: 'muted' }, 'The dead-letter is empty.')));
@@ -28,6 +33,7 @@ export function renderDeadLetters(view, signal) {
         } catch (error) {
             if (current === generation) {
                 showMessage('error', `Could not load the dead-letter: ${error.message}`);
+                loadFailed = true;
             }
         } finally {
             if (current === generation) {
@@ -86,7 +92,7 @@ export function renderDeadLetters(view, signal) {
     });
     refresh.addEventListener('click', load);
     onHub('QueueStats', stats => {
-        if (lastDeadLettered !== null && stats.deadLetteredMessages !== lastDeadLettered) {
+        if (stats.deadLetteredMessages !== lastDeadLettered) {
             load();
         }
         lastDeadLettered = stats.deadLetteredMessages;

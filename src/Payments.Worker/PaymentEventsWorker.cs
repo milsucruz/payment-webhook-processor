@@ -57,7 +57,7 @@ public sealed class PaymentEventsWorker : BackgroundService
                 break;
             case ProcessStripeEventOutcome.ConcurrencyConflict:
             case ProcessStripeEventOutcome.TransientFailure:
-                Dictionary<string, object> properties = new() { [LastFailureReasonProperty] = result.Reason ?? string.Empty };
+                Dictionary<string, object> properties = new() { [LastFailureReasonProperty] = $"Delivery {args.Message.DeliveryCount}: {result.Reason}" };
                 await args.AbandonMessageAsync(args.Message, properties, args.CancellationToken);
                 break;
             default:

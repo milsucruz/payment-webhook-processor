@@ -93,6 +93,7 @@ public class PaymentEventsWorkerScenarioTests : IAsyncLifetime
         Assert.Equal("MaxDeliveryCountExceeded", deadLettered.DeadLetterReason);
         Assert.Equal(5, deadLettered.DeliveryCount);
         string lastFailureReason = Assert.IsType<string>(deadLettered.ApplicationProperties["LastFailureReason"]);
+        Assert.StartsWith("Delivery 5: ", lastFailureReason, StringComparison.Ordinal);
         Assert.Contains("evt_always_conflicting", lastFailureReason, StringComparison.Ordinal);
     }
 
