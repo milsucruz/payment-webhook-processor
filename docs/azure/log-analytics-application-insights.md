@@ -79,6 +79,7 @@ Exemplo do fluxo: um pagamento `poison` falha 5 vezes no worker, o Service Bus o
 - **Logo depois do deploy:** a atribuição do Monitoring Metrics Publisher pode levar alguns minutos para valer. Nesse intervalo a ingestão recusa o token, e a telemetria desses minutos pode se perder; o app continua funcionando.
 - **Desfazer:** apagar o workspace apaga os dados e tem uma janela de recuperação de 14 dias; apagar o Application Insights não apaga o workspace.
 - **Alertas (5.7):** cada regra de métrica custa cerca de US$ 0,10 por mês (uma série monitorada); os primeiros 1.000 e-mails por mês são grátis. Um alerta de log (KQL) custaria cerca de US$ 1,50 por mês por regra, por isso os dois são de métrica. Apagar as regras e o action group não tem efeito colateral.
+- **E-mail na Free Trial (5.7):** a assinatura é Free Trial (`FreeTrial_2014-09-01`, limite de gasto ligado), mantida de propósito para nada cobrar além do crédito. Na 5.7 os alertas dispararam e o histórico mostrou "Action group executed" em cada disparo e resolução, mas nenhum e-mail de alerta chegou; só o de boas-vindas do action group. O teste do action group (`az monitor action-group test-notifications create`) responde "Free subscription not supported". Na prática, nesta assinatura o alerta se confere em **Monitor → Alerts** e no histórico dele, não na caixa de e-mail. Fazer upgrade tiraria o limite de gasto, o que o projeto não aceita.
 - **Alerta que nunca mais avisa:** com a dead-letter cheia, o alerta continua disparado e não manda novos e-mails (ver "Stateful" acima).
 - **E-mail do alerta:** é pessoal e não fica no repositório público. O Bicep o lê de `ALERT_EMAIL`, e o pipeline o lê do próprio action group, como faz com o admin do SQL.
 
@@ -93,6 +94,7 @@ az rest --method post --url "https://api.loganalytics.io/v1/workspaces/$(az reso
 ```bash
 az monitor metrics alert list -g rg-payment-webhooks --query "[].{name:name,enabled:enabled,severity:severity}" -o table
 az monitor action-group show -g rg-payment-webhooks -n ag-payment-webhooks --query "emailReceivers[].{name:name,status:status}"
+az rest --method get --url "https://management.azure.com/subscriptions/<sub>/providers/Microsoft.AlertsManagement/alerts?api-version=2019-05-05-preview" --query "value[].{name:name,state:properties.essentials.monitorCondition,fired:properties.essentials.startDateTime}" -o table   # alertas disparados; o histórico de um é <id>/history
 az servicebus queue show -g rg-payment-webhooks --namespace-name <namespace> -n payment-events --query countDetails.deadLetterMessageCount
 ```
 
