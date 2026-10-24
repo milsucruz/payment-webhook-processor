@@ -11,6 +11,8 @@ param apiImageTag string
 param workerImageTag string
 param migratorImageTag string
 param faultInjectionEnabled bool
+@secure()
+param alertEmail string
 
 var apiIdentityName = 'id-${namePrefix}-api'
 var workerIdentityName = 'id-${namePrefix}-worker'
@@ -95,6 +97,16 @@ module containerApps 'containerapps.bicep' = {
     workspaceName: monitoring.outputs.workspaceName
     appInsightsConnectionString: monitoring.outputs.appInsightsConnectionString
     faultInjectionEnabled: faultInjectionEnabled
+  }
+}
+
+module alerts 'alerts.bicep' = {
+  name: 'alerts'
+  params: {
+    namePrefix: namePrefix
+    alertEmail: alertEmail
+    serviceBusNamespaceName: serviceBus.outputs.namespaceName
+    apiAppName: containerApps.outputs.apiName
   }
 }
 

@@ -397,18 +397,22 @@ The exporter authenticates with the container's managed identity (Monitoring Met
 
 ### Custom metrics
 
-| Metric | Type | Question it answers |
-| --- | --- | --- |
-| `events.received` | Counter, by type | How much is coming in? |
-| `events.duplicate` | Counter | How many repeated deliveries did idempotency absorb? |
-| `events.out_of_order` | Counter | How many events were ignored as out of order? |
-| `events.dead_lettered` | Counter, by reason | What could the system not process? |
-| `event.processing.duration` | Histogram | How long from receipt to commit? |
+| Metric | Type | Question it answers | Measured in |
+| --- | --- | --- | --- |
+| `events.received` | Counter, by type | How much is coming in? | API, after the event is published to the queue |
+| `events.duplicate` | Counter | How many repeated deliveries did idempotency absorb? | Worker, when the inbox already has the event |
+| `events.out_of_order` | Counter | How many events were ignored as out of order? | Worker, after the commit |
+| `events.dead_lettered` | Counter, by reason | What could the system not process? | Worker, after it dead-letters a permanent error |
+| `event.processing.duration` | Histogram, in seconds | How long from receipt to commit? | Worker, after the commit of an applied, ignored or redundant event |
+
+All five live in one meter, `Payments`, exported by the same Azure Monitor exporter as the traces; they land in the `customMetrics` table, with the tags `payments.event_type`, `payments.dead_letter_reason` and `payments.outcome` as dimensions. Receipt is the message's enqueue time, milliseconds after the API accepted the webhook, so the duration includes the wait in the queue, the retries and the redeliveries. `events.dead_lettered` counts only what the worker sends to the dead-letter itself (`InvalidEvent`, `ImpossibleConflict`): a message that reaches it by `MaxDeliveryCountExceeded` is moved by Service Bus, which the code never sees, so the full count is the Service Bus metric the alert below uses.
 
 ### Alerts
 
-- **Dead-letter above zero:** Service Bus metric, filtered to `payment-events`, with email.
-- **Webhook failures:** more than 5 `5xx` responses in 5 minutes.
+Both are Azure Monitor metric alerts (`infra/alerts.bicep`) that send an email through one action group, evaluated every minute over a 5-minute window. They are stateful: an alert fires once, and resolves by itself when its condition is false again.
+
+- **Dead-letter above zero:** the Service Bus `DeadletteredMessages` metric, filtered to `payment-events`, with a maximum above 0. While anything stays in the dead-letter the alert stays fired and sends no new email, so the dead-letter has to be emptied (reprocessed or purged with `infra/servicebus/purge-dead-letters.ps1`) for the next dead-lettered message to alert again.
+- **Webhook failures:** the API container app's `Requests` platform metric, filtered to the `5xx` status category, with a total above 5. The platform metric is counted by the ingress, so it also sees the `502` and `503` of an API that doesn't start, when the app itself sends no telemetry. It covers every route of the API; only the webhook answers `5xx` by design, but an unhandled error in a read would count too. A log alert on the webhook's requests would be exact, but it costs about US$ 1.50 a month per rule, against about US$ 0.10 for a metric alert.
 
 ### Volume control
 
@@ -425,7 +429,7 @@ The database is deliberately left out of the API's readiness check: it may be pa
 
 ## 10. Infrastructure, cost and deploy
 
-All infrastructure is created by Bicep, except the resource group and the budget, which task 4.1 created by hand in the portal (see `docs/pending.md`), and the pipeline's identity, which cannot grant itself its own roles: `infra/pipeline/setup-oidc.ps1` (task 4.8), run once by the developer, creates the app registration, its federated credential and its two role assignments on the group. The infrastructure fits within the free allowances, except for Service Bus, billed per million operations, and Key Vault, billed per 10,000 operations. Both come to cents at this volume.
+All infrastructure is created by Bicep, except the resource group and the budget, which task 4.1 created by hand in the portal (see `docs/pending.md`), and the pipeline's identity, which cannot grant itself its own roles: `infra/pipeline/setup-oidc.ps1` (task 4.8), run once by the developer, creates the app registration, its federated credential and its two role assignments on the group. The infrastructure fits within the free allowances, except for Service Bus, billed per million operations, Key Vault, billed per 10,000 operations, and the two alert rules, billed per month. All three come to cents at this volume.
 
 ### Resources and cost
 
@@ -435,6 +439,7 @@ All infrastructure is created by Bicep, except the resource group and the budget
 | Service Bus | Basic | Billed per million operations, no fixed fee ([pricing](https://azure.microsoft.com/en-us/pricing/details/service-bus/)) |
 | Azure SQL Database | Free offer, serverless | 100,000 vCore-seconds and 32 GB per month, for the life of the subscription ([documentation](https://learn.microsoft.com/en-us/azure/azure-sql/database/free-offer)) |
 | Application Insights and Log Analytics | Pay as you go | First 5 GB of ingestion per month free |
+| Azure Monitor alerts | Metric alerts and an action group | About US$ 0.10 a month per alert rule (one monitored time series each); the first 1,000 emails a month are free ([pricing](https://azure.microsoft.com/en-us/pricing/details/monitor/)) |
 | Key Vault | Standard | Billed per 10,000 operations; cents at this volume |
 | GitHub Container Registry | Public repository | Free |
 | Azure SignalR Service (optional milestone) | Free | 20 concurrent connections and 20,000 messages per day ([pricing](https://azure.microsoft.com/en-us/pricing/details/signalr-service/)) |
@@ -467,8 +472,9 @@ New Azure accounts get US$ 200 of credit for 30 days, which covers any overrun d
 | `servicebus.bicep` | Namespace, both queues and the role assignments |
 | `sql.bicep` | Server, free database, Entra ID admin and the Azure services firewall rule |
 | `keyvault.bicep` | Vault and role assignments |
-| `monitoring.bicep` | Log Analytics, Application Insights and alerts |
+| `monitoring.bicep` | Log Analytics and Application Insights |
 | `containerapps.bicep` | Environment, API, worker and migration job |
+| `alerts.bicep` | Action group and the two metric alerts; a module of its own because the alerts need the namespace and the API, and the container apps already depend on `monitoring.bicep` |
 
 ### Pipeline
 

@@ -13,7 +13,8 @@ Sets up traces and logs for the API and the worker (task 5.6, section 9). Both `
 | Sources `Payments.Processing` and `Azure.*` | The transaction span from `ProcessStripeEvent` and every Azure SDK span (send, process, complete, token requests) |
 | HttpClient and SqlClient instrumentation | Outgoing HTTP calls and one span per SQL command, under the transaction span |
 | `TraceNoiseFilter` | Drops the polling spans and the spans under a dropped parent, see below |
-| Azure Monitor trace and log exporters | Only when `APPLICATIONINSIGHTS_CONNECTION_STRING` is set |
+| Meter `Payments` | The five custom metrics of `PaymentsMetrics` (task 5.7, `docs/code/PaymentsMetrics.md`); no runtime or ASP.NET Core metrics, which answer no question of section 9 and would only add volume against the cap |
+| Azure Monitor trace, metric and log exporters | Only when `APPLICATIONINSIGHTS_CONNECTION_STRING` is set; metrics go to `customMetrics`, aggregated per minute |
 
 ## The switch is read once
 

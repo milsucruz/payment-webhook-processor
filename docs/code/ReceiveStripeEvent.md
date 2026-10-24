@@ -39,7 +39,7 @@ The signature is checked over the payload exactly as received, before any deseri
 
 ### Reading the event ID
 
-`IEventPublisher` takes the event ID ready-made (see `docs/code/ServiceBusEventPublisher.md`). `JsonDocument` parses the body and only `id` is read. Nothing else in the event is looked at: parsing the event is the worker's job (task 2.2).
+`IEventPublisher` takes the event ID ready-made (see `docs/code/ServiceBusEventPublisher.md`). `JsonDocument` parses the body and reads `id` and, since task 5.7, `type`. Nothing else in the event is looked at: parsing the event is the worker's job (task 2.2). The type is only the tag of the `events.received` metric, counted after the publish succeeds (see `docs/code/PaymentsMetrics.md`); a missing or non-string `type` is counted as `unknown` and doesn't reject the webhook, since the worker's parser decides what a valid event is.
 
 The ID must be a non-empty string of at most 128 characters, the limits of the Service Bus `MessageId`. Its setter throws `ArgumentException` otherwise. The `evt_` prefix is not checked: with a valid signature, the body came from Stripe or from someone who holds the secret, and the prefix is Stripe's format, not a rule of this system.
 

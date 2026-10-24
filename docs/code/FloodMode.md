@@ -2,7 +2,7 @@
 
 `tools/Simulator/FloodMode.cs`
 
-The simulator's `flood` mode (architecture section 11): it creates a large batch of payments to make the worker scale. Task 4.7's done criterion is that it takes the worker from zero replicas up. Usage: `flood [count]`, 100 by default.
+The simulator's `flood` mode (architecture section 11): it creates a large batch of payments to make the worker scale. Task 4.7's done criterion is that it takes the worker from zero replicas up. Usage: `flood [count] [fault]`, 100 payments and `slow` by default. The fault is the `demo_fault` of every payment, one of `slow`, `transient` or `poison`; task 5.7 added it to fill the cloud dead-letter with 100 `poison` payments and time a reprocess there (see `docs/code/ServiceBusDeadLetterQueue.md`).
 
 ## What it sends
 
@@ -20,7 +20,7 @@ Section 11 says `flood` creates payments; it doesn't say where. Creating Payment
 
 The cost is that the events are synthetic, not real Stripe payloads. The parser contract is covered by the fixtures in `tests/fixtures`; `flood` only needs events the worker accepts.
 
-## Why `demo_fault=slow`
+## Why `demo_fault=slow` by default
 
 The worker processes 4 messages at a time (`MaxConcurrentCalls`), each in tens of milliseconds, and KEDA reads the queue length every 30 s. Without a delay, one replica empties the queue between two readings and the scale-out never shows. With `slow`, the first attempt of each delivery waits 10 s (section 6), so one replica handles about 0.4 messages per second and the queue grows while the batch is sent. This is what section 6 says the fault is for: showing scaling without relying on luck. It needs `FaultInjection:Enabled`, which is on in the compose worker and in the cloud sandbox.
 
@@ -46,4 +46,4 @@ The task 4.7 code review suggested two changes, both left out:
 
 ## Tests
 
-`tests/Simulator.Tests/FloodModeTests.cs`: the event parses as a paid payment with `DemoFault` `slow`; a run sends `count` deliveries with distinct payments, each accepted by the API's signature verifier; a non-`200` answer gives exit code `1`.
+`tests/Simulator.Tests/FloodModeTests.cs`: the event parses as a paid payment with the given `DemoFault`; a run sends `count` deliveries with distinct payments, each accepted by the API's signature verifier; a non-`200` answer gives exit code `1`.

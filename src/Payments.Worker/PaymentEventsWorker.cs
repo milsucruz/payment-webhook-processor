@@ -1,5 +1,6 @@
 using Azure.Messaging.ServiceBus;
 using Payments.Application.Processing;
+using Payments.Application.Telemetry;
 
 namespace Payments.Worker;
 
@@ -13,12 +14,14 @@ public sealed class PaymentEventsWorker : BackgroundService
 
     private readonly ServiceBusProcessor processor;
     private readonly IServiceScopeFactory scopeFactory;
+    private readonly PaymentsMetrics metrics;
     private readonly ILogger<PaymentEventsWorker> logger;
 
-    public PaymentEventsWorker(ServiceBusProcessor processor, IServiceScopeFactory scopeFactory, ILogger<PaymentEventsWorker> logger)
+    public PaymentEventsWorker(ServiceBusProcessor processor, IServiceScopeFactory scopeFactory, PaymentsMetrics metrics, ILogger<PaymentEventsWorker> logger)
     {
         this.processor = processor;
         this.scopeFactory = scopeFactory;
+        this.metrics = metrics;
         this.logger = logger;
     }
 
@@ -41,7 +44,7 @@ public sealed class PaymentEventsWorker : BackgroundService
         await using AsyncServiceScope scope = this.scopeFactory.CreateAsyncScope();
         ProcessStripeEvent processStripeEvent = scope.ServiceProvider.GetRequiredService<ProcessStripeEvent>();
 
-        ProcessStripeEventResult result = await processStripeEvent.ExecuteAsync(args.Message.Body.ToString(), args.CancellationToken);
+        ProcessStripeEventResult result = await processStripeEvent.ExecuteAsync(args.Message.Body.ToString(), args.Message.EnqueuedTime, args.CancellationToken);
 
         switch (result.Outcome)
         {
@@ -53,9 +56,11 @@ public sealed class PaymentEventsWorker : BackgroundService
                 break;
             case ProcessStripeEventOutcome.InvalidEvent:
                 await args.DeadLetterMessageAsync(args.Message, InvalidEventReason, result.Reason, args.CancellationToken);
+                this.metrics.EventDeadLettered(InvalidEventReason);
                 break;
             case ProcessStripeEventOutcome.Conflict:
                 await args.DeadLetterMessageAsync(args.Message, ImpossibleConflictReason, result.Reason, args.CancellationToken);
+                this.metrics.EventDeadLettered(ImpossibleConflictReason);
                 break;
             case ProcessStripeEventOutcome.ConcurrencyConflict:
             case ProcessStripeEventOutcome.TransientFailure:

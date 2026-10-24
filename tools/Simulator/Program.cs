@@ -70,12 +70,19 @@ switch (mode)
                 cancellation.Token);
         }
 
-    case "flood" when args.Length is 1 or 2:
+    case "flood" when args.Length is >= 1 and <= 3:
         {
             int count = FloodMode.DefaultCount;
-            if (args.Length == 2 && (!int.TryParse(args[1], out count) || count <= 0))
+            if (args.Length >= 2 && (!int.TryParse(args[1], out count) || count <= 0))
             {
                 Console.Error.WriteLine("The count must be a positive number.");
+                return 2;
+            }
+
+            string fault = args.Length == 3 ? args[2] : FloodMode.DefaultFault;
+            if (!FloodMode.Faults.Contains(fault))
+            {
+                Console.Error.WriteLine($"The fault must be one of: {string.Join(", ", FloodMode.Faults)}.");
                 return 2;
             }
 
@@ -87,6 +94,7 @@ switch (mode)
                 webhookUrl,
                 Settings.Require(configuration, "Stripe:WebhookSecret"),
                 count,
+                fault,
                 TimeProvider.System,
                 cancellation.Token);
         }
@@ -96,6 +104,6 @@ switch (mode)
         Console.Error.WriteLine("  pay                               one payment per test card: approve, decline, authenticate");
         Console.Error.WriteLine("  refund <pi_...> [amount-in-cents] full refund, or partial with an amount");
         Console.Error.WriteLine("  replay [seed]                     resend every inbox event twice, shuffled, freshly signed");
-        Console.Error.WriteLine("  flood [count]                     send count new paid payments (default 100) with demo_fault=slow");
+        Console.Error.WriteLine("  flood [count] [fault]             send count new paid payments (default 100) with demo_fault=fault (default slow)");
         return 2;
 }

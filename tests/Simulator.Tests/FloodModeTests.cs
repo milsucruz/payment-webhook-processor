@@ -14,9 +14,9 @@ public class FloodModeTests
     private static readonly DateTimeOffset now = new(2026, 10, 21, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void Event_is_a_paid_payment_with_the_slow_demo_fault_for_the_api_parser()
+    public void Event_is_a_paid_payment_with_the_given_demo_fault_for_the_api_parser()
     {
-        string payload = FloodMode.BuildEvent("run1", 7, now.ToUnixTimeSeconds());
+        string payload = FloodMode.BuildEvent("run1", 7, now.ToUnixTimeSeconds(), "poison");
 
         PaymentEvent paymentEvent = StripeEventParser.Parse(payload);
 
@@ -27,7 +27,7 @@ public class FloodModeTests
         Assert.Equal(PaymentStatus.Paid, paymentEvent.RequestedStatus);
         Assert.Equal(PayMode.AmountInCents, paymentEvent.Amount);
         Assert.Equal(PayMode.Currency, paymentEvent.Currency);
-        Assert.Equal("slow", paymentEvent.DemoFault);
+        Assert.Equal("poison", paymentEvent.DemoFault);
     }
 
     [Fact]
@@ -37,7 +37,7 @@ public class FloodModeTests
         using HttpClient httpClient = new(handler);
         StripeWebhookSignatureVerifier verifier = new(Options.Create(new StripeOptions { WebhookSecret = Secret }), new FixedTimeProvider(now));
 
-        int exitCode = await FloodMode.RunAsync(httpClient, new Uri("http://api/webhooks/stripe"), Secret, 3, new FixedTimeProvider(now), CancellationToken.None);
+        int exitCode = await FloodMode.RunAsync(httpClient, new Uri("http://api/webhooks/stripe"), Secret, 3, FloodMode.DefaultFault, new FixedTimeProvider(now), CancellationToken.None);
 
         Assert.Equal(0, exitCode);
         Assert.Equal(3, handler.Deliveries.Count);
@@ -51,7 +51,7 @@ public class FloodModeTests
         RecordingHandler handler = new(HttpStatusCode.TooManyRequests);
         using HttpClient httpClient = new(handler);
 
-        int exitCode = await FloodMode.RunAsync(httpClient, new Uri("http://api/webhooks/stripe"), Secret, 1, new FixedTimeProvider(now), CancellationToken.None);
+        int exitCode = await FloodMode.RunAsync(httpClient, new Uri("http://api/webhooks/stripe"), Secret, 1, FloodMode.DefaultFault, new FixedTimeProvider(now), CancellationToken.None);
 
         Assert.Equal(1, exitCode);
     }

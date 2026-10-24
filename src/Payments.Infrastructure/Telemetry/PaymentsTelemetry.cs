@@ -3,9 +3,11 @@ using Azure.Monitor.OpenTelemetry.Exporter;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Payments.Application.Processing;
+using Payments.Application.Telemetry;
 using Serilog;
 using Serilog.Extensions.Logging;
 using Serilog.Formatting.Compact;
@@ -45,6 +47,14 @@ public static class PaymentsTelemetry
                 if (!string.IsNullOrWhiteSpace(connectionString))
                 {
                     tracing.AddAzureMonitorTraceExporter(options => ConfigureExporter(options, connectionString));
+                }
+            })
+            .WithMetrics(metrics =>
+            {
+                metrics.AddMeter(PaymentsMetrics.MeterName);
+                if (!string.IsNullOrWhiteSpace(connectionString))
+                {
+                    metrics.AddAzureMonitorMetricExporter(options => ConfigureExporter(options, connectionString));
                 }
             })
             .WithLogging(

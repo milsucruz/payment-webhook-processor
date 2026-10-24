@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Options;
 using Payments.Application.Notifications;
 using Payments.Application.Processing;
+using Payments.Application.Telemetry;
 using Payments.Infrastructure.Faults;
 using Payments.Infrastructure.Messaging;
 using Payments.Infrastructure.Persistence;
@@ -90,6 +91,8 @@ public partial class Program
             services.AddSingleton<IFaultInjector, NoFaultInjector>();
         }
 
+        services.AddMetrics();
+        services.AddSingleton<PaymentsMetrics>();
         services.AddScoped<ProcessStripeEvent>();
 
         services.AddHostedService<PaymentEventsWorker>();

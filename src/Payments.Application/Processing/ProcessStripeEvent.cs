@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Payments.Application.Events;
 using Payments.Application.Notifications;
 using Payments.Application.Reading;
+using Payments.Application.Telemetry;
 using Payments.Domain;
 
 namespace Payments.Application.Processing;
@@ -27,6 +28,7 @@ public class ProcessStripeEvent
     private readonly IFaultInjector faultInjector;
     private readonly IPaymentNotificationPublisher notificationPublisher;
     private readonly TimeProvider timeProvider;
+    private readonly PaymentsMetrics metrics;
     private readonly ILogger<ProcessStripeEvent> logger;
 
     public ProcessStripeEvent(
@@ -35,6 +37,7 @@ public class ProcessStripeEvent
         IFaultInjector faultInjector,
         IPaymentNotificationPublisher notificationPublisher,
         TimeProvider timeProvider,
+        PaymentsMetrics metrics,
         ILogger<ProcessStripeEvent> logger)
     {
         this.paymentStore = paymentStore;
@@ -42,10 +45,11 @@ public class ProcessStripeEvent
         this.faultInjector = faultInjector;
         this.notificationPublisher = notificationPublisher;
         this.timeProvider = timeProvider;
+        this.metrics = metrics;
         this.logger = logger;
     }
 
-    public async Task<ProcessStripeEventResult> ExecuteAsync(string payload, CancellationToken cancellationToken)
+    public async Task<ProcessStripeEventResult> ExecuteAsync(string payload, DateTimeOffset receivedAt, CancellationToken cancellationToken)
     {
         PaymentEvent paymentEvent;
         try
@@ -94,6 +98,7 @@ public class ProcessStripeEvent
 
             if (attemptResult.Result.Outcome != ProcessStripeEventOutcome.ConcurrencyConflict)
             {
+                this.metrics.EventProcessed(attemptResult.Result.Outcome, this.timeProvider.GetUtcNow() - receivedAt);
                 await this.NotifyAsync(paymentEvent, attemptResult, cancellationToken);
                 return attemptResult.Result;
             }

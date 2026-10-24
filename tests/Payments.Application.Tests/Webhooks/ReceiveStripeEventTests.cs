@@ -1,5 +1,8 @@
+using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using Microsoft.Extensions.Logging;
 using Payments.Application.Messaging;
+using Payments.Application.Telemetry;
+using Payments.Application.Tests.Telemetry;
 using Payments.Application.Webhooks;
 
 namespace Payments.Application.Tests.Webhooks;
@@ -10,6 +13,7 @@ public class ReceiveStripeEventTests
     private const string Signature = "t=1,v1=test";
 
     private readonly CollectingLogger<ReceiveStripeEvent> logger = new();
+    private readonly TestMeterFactory meterFactory = new();
 
     [Fact]
     public async Task Valid_signature_and_event_id_publishes_the_original_body_and_returns_published()
@@ -121,8 +125,47 @@ public class ReceiveStripeEventTests
         this.AssertSingleLogWithEventId(LogLevel.Error);
     }
 
+    [Fact]
+    public async Task Published_event_is_counted_as_received_with_its_type()
+    {
+        using MetricCollector<long> received = new(this.meterFactory, PaymentsMetrics.MeterName, "events.received");
+
+        await this.Create(SignatureVerificationResult.Valid(), new RecordingEventPublisher())
+            .ExecuteAsync(EventJson, Signature, CancellationToken.None);
+
+        CollectedMeasurement<long> measurement = Assert.Single(received.GetMeasurementSnapshot());
+        Assert.Equal(1, measurement.Value);
+        Assert.Equal("payment_intent.succeeded", measurement.Tags["payments.event_type"]);
+    }
+
+    [Fact]
+    public async Task Event_without_a_type_is_counted_as_unknown()
+    {
+        using MetricCollector<long> received = new(this.meterFactory, PaymentsMetrics.MeterName, "events.received");
+
+        await this.Create(SignatureVerificationResult.Valid(), new RecordingEventPublisher())
+            .ExecuteAsync("""{"id":"evt_1PtTest"}""", Signature, CancellationToken.None);
+
+        Assert.Equal("unknown", Assert.Single(received.GetMeasurementSnapshot()).Tags["payments.event_type"]);
+    }
+
+    [Fact]
+    public async Task Rejected_or_unpublished_events_are_not_counted_as_received()
+    {
+        using MetricCollector<long> received = new(this.meterFactory, PaymentsMetrics.MeterName, "events.received");
+
+        await this.Create(SignatureVerificationResult.Invalid("bad signature"), new RecordingEventPublisher())
+            .ExecuteAsync(EventJson, Signature, CancellationToken.None);
+        await this.Create(SignatureVerificationResult.Valid(), new RecordingEventPublisher())
+            .ExecuteAsync("""{"object":"event"}""", Signature, CancellationToken.None);
+        await this.Create(SignatureVerificationResult.Valid(), new ThrowingEventPublisher(new InvalidOperationException("Service Bus is down.")))
+            .ExecuteAsync(EventJson, Signature, CancellationToken.None);
+
+        Assert.Empty(received.GetMeasurementSnapshot());
+    }
+
     private ReceiveStripeEvent Create(SignatureVerificationResult verification, IEventPublisher publisher) =>
-        new(new FakeSignatureVerifier(verification), publisher, this.logger);
+        new(new FakeSignatureVerifier(verification), publisher, new PaymentsMetrics(this.meterFactory), this.logger);
 
     private void AssertSingleLogWithEventId(LogLevel level)
     {
