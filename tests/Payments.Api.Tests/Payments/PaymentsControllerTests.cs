@@ -143,6 +143,7 @@ public class PaymentsControllerTests : IClassFixture<WebApplicationFactory<Progr
                 builder.UseSetting("Stripe:WebhookSecret", "whsec_test_secret");
                 builder.UseSetting("ServiceBus:ConnectionString", "Endpoint=sb://localhost;SharedAccessKeyName=test;SharedAccessKey=test");
                 builder.UseSetting("ServiceBus:EventsQueueName", "payment-events");
+                builder.UseSetting("ServiceBus:NotificationsQueueName", "payment-notifications");
                 builder.UseSetting("ConnectionStrings:Payments", "Server=localhost;Database=Payments");
                 builder.UseSetting("Admin:ApiKey", "test-admin-key");
                 builder.ConfigureTestServices(services => services.AddSingleton(reader));

@@ -1,6 +1,9 @@
 using Microsoft.Extensions.Logging;
 using Payments.Application.Events;
+using Payments.Application.Notifications;
 using Payments.Application.Processing;
+using Payments.Application.Reading;
+using Payments.Application.Tests.Notifications;
 using Payments.Application.Tests.Webhooks;
 using Payments.Domain;
 
@@ -16,6 +19,7 @@ public class ProcessStripeEventTests
     private readonly CollectingLogger<ProcessStripeEvent> logger = new();
     private readonly TestTransientErrorDetector transientErrorDetector = new();
     private readonly TestFaultInjector faultInjector = new();
+    private readonly RecordingNotificationPublisher notificationPublisher = new();
     private readonly DelayTrackingTimeProvider timeProvider = new(processedAt);
 
     [Fact]
@@ -368,6 +372,147 @@ public class ProcessStripeEventTests
         Assert.Contains(expectedReason, log.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Applied_event_publishes_a_notification_with_the_payment_after_the_commit()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        PaymentEvent paymentEvent = StripeEventParser.Parse(payload);
+        int commitsAtPublish = -1;
+        this.notificationPublisher.OnPublish = () => commitsAtPublish = this.store.Commits;
+
+        await this.Process(payload);
+
+        Assert.Equal(1, commitsAtPublish);
+        PaymentNotification notification = Assert.Single(this.notificationPublisher.Published);
+        Assert.Equal(paymentEvent.EventId, notification.EventId);
+        Assert.Equal(paymentEvent.EventType, notification.EventType);
+        Assert.Equal(paymentEvent.PaymentIntentId, notification.PaymentIntentId);
+        Assert.Equal(ProcessStripeEventOutcome.Applied, notification.Outcome);
+        Assert.Equal(
+            new PaymentSummary(paymentEvent.PaymentIntentId, PaymentStatus.Paid, paymentEvent.Amount, 0, paymentEvent.Currency, processedAt),
+            notification.Payment);
+    }
+
+    [Fact]
+    public async Task Ignored_event_publishes_a_notification_with_the_unchanged_payment()
+    {
+        string payload = ReadFixture("payment_intent.created.json");
+        PaymentEvent paymentEvent = StripeEventParser.Parse(payload);
+        this.Seed(paymentEvent, PaymentStatus.Paid, amountRefunded: 0);
+
+        await this.Process(payload);
+
+        PaymentNotification notification = Assert.Single(this.notificationPublisher.Published);
+        Assert.Equal(ProcessStripeEventOutcome.IgnoredOutOfOrder, notification.Outcome);
+        Assert.Equal(
+            new PaymentSummary(paymentEvent.PaymentIntentId, PaymentStatus.Paid, paymentEvent.Amount, 0, paymentEvent.Currency, earlierAt),
+            notification.Payment);
+    }
+
+    [Fact]
+    public async Task Redundant_event_publishes_a_notification()
+    {
+        string payload = ReadFixture("charge.refunded.partial.json");
+        PaymentEvent paymentEvent = StripeEventParser.Parse(payload);
+        this.Seed(paymentEvent, PaymentStatus.PartiallyRefunded, amountRefunded: paymentEvent.AmountRefunded);
+
+        await this.Process(payload);
+
+        PaymentNotification notification = Assert.Single(this.notificationPublisher.Published);
+        Assert.Equal(ProcessStripeEventOutcome.Redundant, notification.Outcome);
+        Assert.Equal(PaymentStatus.PartiallyRefunded, notification.Payment?.Status);
+    }
+
+    [Fact]
+    public async Task Duplicate_event_publishes_a_notification_without_the_payment()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        PaymentEvent paymentEvent = StripeEventParser.Parse(payload);
+        await this.Process(payload);
+
+        await this.Process(payload);
+
+        Assert.Equal(2, this.notificationPublisher.Published.Count);
+        PaymentNotification notification = this.notificationPublisher.Published[1];
+        Assert.Equal(paymentEvent.EventId, notification.EventId);
+        Assert.Equal(ProcessStripeEventOutcome.Duplicate, notification.Outcome);
+        Assert.Null(notification.Payment);
+    }
+
+    [Fact]
+    public async Task Concurrency_conflict_retried_publishes_one_notification()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        this.store.ConcurrencyConflictsToReport = 1;
+
+        await this.Process(payload);
+
+        Assert.Equal(ProcessStripeEventOutcome.Applied, Assert.Single(this.notificationPublisher.Published).Outcome);
+    }
+
+    [Fact]
+    public async Task Impossible_conflict_publishes_no_notification()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        this.Seed(StripeEventParser.Parse(payload), PaymentStatus.Canceled, amountRefunded: 0);
+
+        await this.Process(payload);
+
+        Assert.Empty(this.notificationPublisher.Published);
+    }
+
+    [Fact]
+    public async Task Invalid_event_publishes_no_notification()
+    {
+        await this.Process("not json");
+
+        Assert.Empty(this.notificationPublisher.Published);
+    }
+
+    [Fact]
+    public async Task Concurrency_conflict_on_every_attempt_publishes_no_notification()
+    {
+        this.store.ConcurrencyConflictsToReport = 3;
+
+        await this.Process(ReadFixture("payment_intent.succeeded.json"));
+
+        Assert.Empty(this.notificationPublisher.Published);
+    }
+
+    [Fact]
+    public async Task Transient_failure_publishes_no_notification()
+    {
+        for (int attempt = 0; attempt < 4; attempt++)
+        {
+            this.store.CommitExceptions.Enqueue(new TransientTestException());
+        }
+
+        await this.ProcessThroughDelays(
+            ReadFixture("payment_intent.succeeded.json"),
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(15));
+
+        Assert.Empty(this.notificationPublisher.Published);
+    }
+
+    [Fact]
+    public async Task Failed_notification_is_logged_and_keeps_the_outcome()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        PaymentEvent paymentEvent = StripeEventParser.Parse(payload);
+        this.notificationPublisher.FailWith = new InvalidOperationException("Service Bus is down");
+
+        ProcessStripeEventResult result = await this.Process(payload);
+
+        Assert.Equal(new ProcessStripeEventResult(ProcessStripeEventOutcome.Applied), result);
+        Assert.Equal(1, this.store.Commits);
+        Assert.Equal(1, this.store.TransactionsStarted);
+        Assert.Contains(
+            this.logger.Entries,
+            entry => entry.Level == LogLevel.Warning && entry.Message.Contains("Notification", StringComparison.Ordinal) && entry.Message.Contains(paymentEvent.EventId, StringComparison.Ordinal));
+    }
+
     private static string ReadFixture(string fixture)
     {
         return File.ReadAllText(Path.Combine(fixturesDirectory, fixture));
@@ -388,7 +533,7 @@ public class ProcessStripeEventTests
 
     private Task<ProcessStripeEventResult> Process(string payload, CancellationToken cancellationToken = default)
     {
-        ProcessStripeEvent processStripeEvent = new(this.store, this.transientErrorDetector, this.faultInjector, this.timeProvider, this.logger);
+        ProcessStripeEvent processStripeEvent = new(this.store, this.transientErrorDetector, this.faultInjector, this.notificationPublisher, this.timeProvider, this.logger);
         return processStripeEvent.ExecuteAsync(payload, cancellationToken);
     }
 

@@ -17,6 +17,7 @@ namespace Payments.IntegrationTests.Worker;
 public sealed class WorkerFixture : IAsyncLifetime
 {
     public const string QueueName = "payment-events";
+    public const string NotificationsQueueName = "payment-notifications";
 
     private const string SqlServerAlias = "sqlserver";
     private const string SqlServerPassword = "Integration-Tests-1";
@@ -50,6 +51,8 @@ public sealed class WorkerFixture : IAsyncLifetime
     }
 
     public string PaymentsConnectionString { get; private set; } = string.Empty;
+
+    public string ServiceBusConnectionString => this.serviceBus.GetConnectionString();
 
     public async Task InitializeAsync()
     {
@@ -102,6 +105,7 @@ public sealed class WorkerFixture : IAsyncLifetime
         {
             ["ServiceBus:ConnectionString"] = this.serviceBus.GetConnectionString(),
             ["ServiceBus:EventsQueueName"] = QueueName,
+            ["ServiceBus:NotificationsQueueName"] = NotificationsQueueName,
             ["ConnectionStrings:Payments"] = this.PaymentsConnectionString,
             ["FaultInjection:Enabled"] = faultInjection ? "true" : "false",
         });
@@ -161,6 +165,23 @@ public sealed class WorkerFixture : IAsyncLifetime
     }
 
     public Task<int> CountDeadLettersAsync(CancellationToken cancellationToken) => CountAsync(this.deadLetterPeeker, cancellationToken);
+
+    public async Task<ServiceBusReceivedMessage> ReceiveNotificationAsync(string eventId, CancellationToken cancellationToken)
+    {
+        using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(waitTimeout);
+        await using ServiceBusReceiver receiver = this.client.CreateReceiver(
+            NotificationsQueueName,
+            new ServiceBusReceiverOptions { ReceiveMode = ServiceBusReceiveMode.ReceiveAndDelete });
+        while (true)
+        {
+            ServiceBusReceivedMessage? message = await receiver.ReceiveMessageAsync(TimeSpan.FromSeconds(1), timeout.Token);
+            if (message?.MessageId == eventId)
+            {
+                return message;
+            }
+        }
+    }
 
     public async Task PurgeAsync(CancellationToken cancellationToken)
     {

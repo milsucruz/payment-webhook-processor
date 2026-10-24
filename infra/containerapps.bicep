@@ -82,6 +82,7 @@ resource api 'Microsoft.App/containerApps@2025-01-01' = {
             { name: 'Stripe__WebhookSecret', secretRef: 'stripe-webhook-secret' }
             { name: 'Admin__ApiKey', secretRef: 'admin-api-key' }
             { name: 'ServiceBus__EventsQueueName', value: 'payment-events' }
+            { name: 'ServiceBus__NotificationsQueueName', value: 'payment-notifications' }
             { name: 'ServiceBus__FullyQualifiedNamespace', value: serviceBusNamespace }
             { name: 'ConnectionStrings__Payments', value: paymentsConnectionString }
             { name: 'AZURE_CLIENT_ID', value: apiClientId }
@@ -144,6 +145,7 @@ resource worker 'Microsoft.App/containerApps@2025-01-01' = {
           }
           env: [
             { name: 'ServiceBus__EventsQueueName', value: 'payment-events' }
+            { name: 'ServiceBus__NotificationsQueueName', value: 'payment-notifications' }
             { name: 'ServiceBus__FullyQualifiedNamespace', value: serviceBusNamespace }
             { name: 'AZURE_CLIENT_ID', value: workerClientId }
             { name: 'ConnectionStrings__Payments', value: paymentsConnectionString }

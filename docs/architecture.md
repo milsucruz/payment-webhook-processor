@@ -41,6 +41,7 @@ The problem is real: Stripe resends events when it doesn't get a timely response
 | Concurrency conflict | Two events for the same payment were processed at the same time and the other one wrote first; the losing one is processed again from the read. Not the same as an impossible conflict, which never succeeds on a retry |
 | Transient error | A failure that a later attempt can fix, such as the database restarting, paused or throttling, or the network dropping; the event is retried with a wait. Not the same as a concurrency conflict, which is retried at once |
 | Permanent error | A failure that no retry can fix: an unreadable event, an unsupported type or an impossible conflict; it goes straight to the dead-letter with the reason |
+| Notification | The notice that the worker processed an event (applied, ignored, redundant or duplicate), sent from the worker to the API so the dashboard can update; it expires in 60 s and is never the source of truth. Also called notice in this document |
 | Reprocess | Send a copy of a dead-lettered message back to the event queue and remove the original from the dead-letter; the inbox makes it safe even if the event was already applied |
 | Poison message | A message that fails on every delivery with an error that is neither transient nor permanent; Service Bus moves it to the dead-letter after 5 deliveries. Not the same as a permanent error, which goes there on the first delivery |
 | Demo fault | A failure forced on purpose by the `demo_fault` metadata of a test payment, to show retry, dead-letter or scaling; it only exists when fault injection is turned on |
@@ -132,9 +133,9 @@ An event goes through ten steps between Stripe and the screen, and each step has
 5. The worker receives the message in peek-lock mode: it becomes invisible to other consumers but has not been removed yet.
 6. The worker opens a transaction, loads the payment and looks up the transition table to decide the outcome. An impossible conflict ends here: the transaction is rolled back and nothing is written.
 7. In the same transaction, the worker inserts the event into the inbox table with that outcome, then applies or ignores the change and writes the history. The primary key of the inbox is the event ID, so a duplicate fails this insert. The inbox comes after the read because its `Outcome` column needs the decision.
-8. The worker commits the transaction and only then completes the message, which leaves the queue.
-9. The worker publishes the notice to the `payment-notifications` queue.
-10. The API consumes the notice and sends `PaymentUpdated` to the clients connected to the hub.
+8. The worker commits the transaction and publishes the notification to the `payment-notifications` queue. A duplicate, which commits nothing, also gets a notification.
+9. Only then does the worker complete the message, which leaves the queue. The notification goes before the completion because the commit is the fact: if the completion fails, the redelivery is a duplicate, and the dashboard would never hear that the event was applied.
+10. The API consumes the notification and sends `PaymentUpdated` to the clients connected to the hub.
 
 ### What happens on each failure
 
@@ -143,10 +144,10 @@ An event goes through ten steps between Stripe and the screen, and each step has
 | Invalid signature (step 2) | The API responds `400` and logs the case | Nobody: the request is discarded |
 | Publishing to the queue (step 3) | The API responds `500` | Stripe resends with increasing backoff |
 | Worker crashes before committing the transaction (steps 6 and 7) | The transaction is rolled back and the message lock expires | Service Bus delivers again |
-| Worker crashes after committing and before completing (step 8) | The event has already been applied, but the message returns to the queue | On redelivery, the inbox insert violates the primary key and the worker just completes the message |
+| Worker crashes after committing and before completing (steps 8 and 9) | The event has already been applied, but the message returns to the queue | On redelivery, the inbox insert violates the primary key and the worker just completes the message |
 | Transient database error | The worker makes 1 attempt plus 3 retries with increasing backoff and, if all fail, abandons the message | Service Bus delivers again, up to 5 times |
 | Permanent error (unreadable event, unknown type, impossible conflict) | The worker sends it straight to the dead-letter with the reason | An operator, via the dashboard |
-| Failure publishing the notice (step 9) | The dashboard misses one live update | The dashboard reloads state on reconnect; the data in the database is correct |
+| Failure publishing the notification (step 8) | The worker logs a warning and completes the message anyway; the dashboard misses one live update | The dashboard reloads state on reconnect; the data in the database is correct |
 
 The fourth case is the answer to the done-criterion question: if the worker crashes in the middle of processing, nothing is lost and nothing is applied twice.
 

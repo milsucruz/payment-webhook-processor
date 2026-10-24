@@ -1,6 +1,6 @@
 # ProcessStripeEvent
 
-`src/Payments.Application/Processing/ProcessStripeEvent.cs`, with `IPaymentStore.cs`, `ProcessStripeEventResult.cs`, `ProcessStripeEventOutcome.cs`, `InboxEvent.cs` and `PaymentHistoryEntry.cs` next to it, and `Payment.Apply` in `src/Payments.Domain/Payment.cs`.
+`src/Payments.Application/Processing/ProcessStripeEvent.cs`, with `IPaymentStore.cs`, `ProcessStripeEventResult.cs`, `ProcessStripeEventOutcome.cs`, `InboxEvent.cs` and `PaymentHistoryEntry.cs` next to it, the notification types in `src/Payments.Application/Notifications/`, and `Payment.Apply` in `src/Payments.Domain/Payment.cs`.
 
 Processing use case: turns a Stripe event taken from the queue into a change to the payment, writing inbox, state and history in one transaction (architecture sections 4 to 6). `PaymentEventsWorker` calls it (see `docs/code/PaymentEventsWorker.md`). This document holds the detail that the code leaves out. Keep it in sync when the class changes.
 
@@ -19,6 +19,7 @@ The payload is the message body, the original JSON that the API published. The u
 | 3. Decide: `Payment.Apply`, or "applied" for an unknown payment | `Conflict`, reason names event, payment and state | Nothing (rollback) | Warning |
 | 4. Insert the inbox row with the outcome | `Duplicate` if the event ID is already there | Nothing (rollback) | Information |
 | 5. Add the new payment, if unknown, and the history row; commit | `Applied`, `IgnoredOutOfOrder` or `Redundant` | Inbox, payment, history | Information |
+| 6. Publish the notification (outcomes of steps 4 and 5 only) | Unchanged | Nothing; a message on `payment-notifications` | Warning if the publish fails |
 
 Steps 2 to 5 are one attempt (`ProcessOnceAsync`). A concurrency conflict in step 4 or 5 rolls the attempt back and starts again at step 2; see "Concurrency conflicts" below. A transient error in any step from 2 to 5 does the same after a wait; see "Transient errors".
 
@@ -132,11 +133,32 @@ Ignored rows carry the outcome as text: `out of order` or `redundant` (private c
 
 `MaxConcurrencyAttempts` and `transientRetryDelays` are private for the same reason (second M3 review): 3 attempts (task 2.6) and the 1 s, 5 s and 15 s delays (section 6, ADR 0011) are decisions, and a test that read the constant would still pass if someone changed the value. The tests write `3`, `4` (1 attempt plus 3 retries) and the three delays as literals.
 
+## Notification
+
+After the attempt loop ends with `Applied`, `IgnoredOutOfOrder`, `Redundant` or `Duplicate`, `NotifyAsync` publishes a `PaymentNotification` through the `IPaymentNotificationPublisher` port (task 5.2, section 4, step 8). The worker completes the message after `ExecuteAsync` returns, so the notification goes out after the commit and before the completion. `ServiceBusPaymentNotificationPublisher` sends it to `payment-notifications`, and `PaymentNotificationsListener` in the API receives it (see `docs/code/PaymentNotificationsListener.md`).
+
+| Field | Value |
+| --- | --- |
+| `EventId`, `EventType`, `PaymentIntentId` | From the parsed event |
+| `Outcome` | The use case's outcome, written as a string |
+| `Payment` | A `PaymentSummary` of the payment as committed: the new payment, the changed one, or the unchanged one for ignored and redundant events. `null` for `Duplicate`, whose transaction was rolled back |
+
+Choices behind it:
+
+- **In the use case, not the worker.** The worker could publish after completing, but it has no `try`/`catch`, and a publish failure must not change the settlement. That would take a second use case only to catch it. The use case already knows the committed payment, which the worker never reads.
+- **Before the completion, not after it.** The commit is the fact, and the completion only cleans up. If the completion fails (lock lost), the redelivery is a `Duplicate`, and a notification sent after the completion would never say the event was applied. Section 4 used to put the notification after the completion; task 5.2 changed steps 8 and 9.
+- **Outside the retry loop.** A publish failure caught as transient would run the attempt again against the database, which already committed. `NotifyAsync` runs once, after the loop returns.
+- **A failure is logged and swallowed.** Any exception from the publish, cancellation included, is logged as a Warning with the event and payment, and the outcome is returned unchanged. The notification is not the source of truth: the dashboard reloads over REST when it reconnects (section 7). Rethrowing would abandon a message whose event is already in the database, and the redelivery would only find a duplicate.
+- **Duplicates are notified too.** The hub contract (section 7) has "duplicate" among the outcomes of `EventProcessed`, so the dashboard can show idempotency at work. Failures (`InvalidEvent`, `Conflict`, `ConcurrencyConflict`, `TransientFailure`) committed nothing and get no notification. The dead-letter is reported by `QueueStats` (task 5.3).
+- **`PaymentSummary`, reused from the read API.** It already holds what `PaymentUpdated` carries (section 7: ID, state, amounts, currency, date of the last change), so the dashboard reads one shape from REST and from the hub.
+- **A private `AttemptResult`.** Only the attempt that committed has the payment. The attempt returns it next to the result, so `ProcessStripeEventResult` stays what the worker needs.
+- **The JSON format in Application (`PaymentNotificationJson`).** The worker writes it through Infrastructure and the API reads it in an adapter, which may not reference Infrastructure (layering rule in `CLAUDE.md`). Web defaults (camelCase) and enums as strings, the same as the read API.
+
 ## What is not here yet
 
 | Missing | Where |
 | --- | --- |
-| `TraceId` | M5 (5.6). Always `null` until there is an `Activity` |
+| `TraceId` | M5 (5.6). Always `null` until there is an `Activity`. The notification has no trace ID either; `EventProcessed` needs one (section 7), so 5.6 adds it to both (`docs/pending.md`) |
 | Duplicate metric (section 6) | M5 (5.7) |
 
 ## Tests
@@ -148,6 +170,8 @@ The task's done criterion maps to `Duplicate_event_writes_nothing_and_returns_du
 For the retry, `InMemoryPaymentStore.ConcurrencyConflictsToReport` makes `CommitAsync` report a conflict that many times. `Concurrency_conflict_is_retried_from_the_read_in_a_new_transaction` checks two transactions and one commit, and `Concurrency_conflict_on_every_attempt_writes_nothing_and_returns_the_reason` checks the limit.
 
 For transient errors, `InMemoryPaymentStore.CommitExceptions` holds exceptions that `CommitAsync` throws one per call, and `TestTransientErrorDetector` treats only `TransientTestException` as transient. Task 3.1's done criterion maps to `Transient_error_on_two_attempts_is_retried_and_the_third_attempt_applies_the_event`: two transient failures, three transactions, one commit, delays of 1 s and 5 s (200 ms and 1 s until task 4.10). `Transient_error_on_every_attempt_writes_nothing_and_returns_transient_failure_after_three_retries` checks the limit and the three delays, and `Exception_that_is_not_transient_propagates_without_retry` checks the filter. Turning the filter off (`when (false && ...)`) fails the done-criterion test with the `TransientTestException` (mutation check in the task 3.1 session).
+
+For the notification, `RecordingNotificationPublisher` keeps what was published, can throw (`FailWith`) and runs a callback before publishing (`OnPublish`). `Applied_event_publishes_a_notification_with_the_payment_after_the_commit` reads `InMemoryPaymentStore.Commits` in that callback, which proves the publish comes after the commit. One test per outcome checks which outcomes publish, and `Failed_notification_is_logged_and_keeps_the_outcome` checks the swallowed failure. `PaymentNotificationJsonTests` pins the JSON format.
 
 The double can't produce a real race, so task 2.6's done criterion is checked by `tests/Payments.IntegrationTests/Processing/ProcessStripeEventConcurrencyTests.cs`, against SQL Server in Testcontainers:
 

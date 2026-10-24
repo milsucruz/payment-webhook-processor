@@ -1,6 +1,7 @@
 using Azure.Messaging.ServiceBus;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Payments.Application.Notifications;
 using Payments.Application.Processing;
 using Payments.Infrastructure.Faults;
 using Payments.Infrastructure.Messaging;
@@ -22,9 +23,13 @@ public partial class Program
             .BindConfiguration(ServiceBusOptions.SectionName)
             .Validate(options => options.HasSingleEndpoint, "Set exactly one of ServiceBus:ConnectionString and ServiceBus:FullyQualifiedNamespace.")
             .Validate(options => !string.IsNullOrWhiteSpace(options.EventsQueueName), "ServiceBus:EventsQueueName is required.")
+            .Validate(options => !string.IsNullOrWhiteSpace(options.NotificationsQueueName), "ServiceBus:NotificationsQueueName is required.")
             .ValidateOnStart();
         services.AddSingleton(serviceProvider =>
             ServiceBusClientFactory.Create(serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value));
+        services.AddSingleton<IPaymentNotificationPublisher>(serviceProvider => new ServiceBusPaymentNotificationPublisher(
+            serviceProvider.GetRequiredService<ServiceBusClient>(),
+            serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value.NotificationsQueueName));
         services.AddSingleton(serviceProvider =>
         {
             ServiceBusProcessorOptions processorOptions = new()

@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Payments.Application.Events;
+using Payments.Application.Notifications;
+using Payments.Application.Reading;
 using Payments.Domain;
 
 namespace Payments.Application.Processing;
@@ -17,6 +19,7 @@ public class ProcessStripeEvent
     private readonly IPaymentStore paymentStore;
     private readonly ITransientErrorDetector transientErrorDetector;
     private readonly IFaultInjector faultInjector;
+    private readonly IPaymentNotificationPublisher notificationPublisher;
     private readonly TimeProvider timeProvider;
     private readonly ILogger<ProcessStripeEvent> logger;
 
@@ -24,12 +27,14 @@ public class ProcessStripeEvent
         IPaymentStore paymentStore,
         ITransientErrorDetector transientErrorDetector,
         IFaultInjector faultInjector,
+        IPaymentNotificationPublisher notificationPublisher,
         TimeProvider timeProvider,
         ILogger<ProcessStripeEvent> logger)
     {
         this.paymentStore = paymentStore;
         this.transientErrorDetector = transientErrorDetector;
         this.faultInjector = faultInjector;
+        this.notificationPublisher = notificationPublisher;
         this.timeProvider = timeProvider;
         this.logger = logger;
     }
@@ -53,10 +58,10 @@ public class ProcessStripeEvent
         while (true)
         {
             attempt++;
-            ProcessStripeEventResult result;
+            AttemptResult attemptResult;
             try
             {
-                result = await this.ProcessOnceAsync(paymentEvent, payload, attempt, cancellationToken);
+                attemptResult = await this.ProcessOnceAsync(paymentEvent, payload, attempt, cancellationToken);
             }
             catch (Exception exception) when (this.transientErrorDetector.IsTransient(exception))
             {
@@ -81,9 +86,10 @@ public class ProcessStripeEvent
                 continue;
             }
 
-            if (result.Outcome != ProcessStripeEventOutcome.ConcurrencyConflict)
+            if (attemptResult.Result.Outcome != ProcessStripeEventOutcome.ConcurrencyConflict)
             {
-                return result;
+                await this.NotifyAsync(paymentEvent, attemptResult, cancellationToken);
+                return attemptResult.Result;
             }
 
             concurrencyAttempts++;
@@ -103,12 +109,42 @@ public class ProcessStripeEvent
         }
     }
 
-    private async Task<ProcessStripeEventResult> ProcessOnceAsync(PaymentEvent paymentEvent, string payload, int attempt, CancellationToken cancellationToken)
+    private async Task NotifyAsync(PaymentEvent paymentEvent, AttemptResult attemptResult, CancellationToken cancellationToken)
+    {
+        if (attemptResult.Result.Outcome is not (ProcessStripeEventOutcome.Applied
+            or ProcessStripeEventOutcome.IgnoredOutOfOrder
+            or ProcessStripeEventOutcome.Redundant
+            or ProcessStripeEventOutcome.Duplicate))
+        {
+            return;
+        }
+
+        PaymentNotification notification = new(
+            paymentEvent.EventId,
+            paymentEvent.EventType,
+            paymentEvent.PaymentIntentId,
+            attemptResult.Result.Outcome,
+            attemptResult.Payment);
+        try
+        {
+            await this.notificationPublisher.PublishAsync(notification, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            this.logger.LogWarning(
+                exception,
+                "Notification for event {EventId} on payment {PaymentIntentId} was not published",
+                paymentEvent.EventId,
+                paymentEvent.PaymentIntentId);
+        }
+    }
+
+    private async Task<AttemptResult> ProcessOnceAsync(PaymentEvent paymentEvent, string payload, int attempt, CancellationToken cancellationToken)
     {
         await this.faultInjector.InjectAsync(paymentEvent, attempt, cancellationToken);
         DateTimeOffset processedAt = this.timeProvider.GetUtcNow();
         IAsyncDisposable transaction = await this.paymentStore.BeginTransactionAsync(cancellationToken);
-        ProcessStripeEventResult result;
+        AttemptResult result;
         try
         {
             result = await this.DecideAndSaveAsync(paymentEvent, payload, processedAt, cancellationToken);
@@ -139,7 +175,7 @@ public class ProcessStripeEvent
         }
     }
 
-    private async Task<ProcessStripeEventResult> DecideAndSaveAsync(PaymentEvent paymentEvent, string payload, DateTimeOffset processedAt, CancellationToken cancellationToken)
+    private async Task<AttemptResult> DecideAndSaveAsync(PaymentEvent paymentEvent, string payload, DateTimeOffset processedAt, CancellationToken cancellationToken)
     {
         Payment? existingPayment = await this.paymentStore.FindPaymentAsync(paymentEvent.PaymentIntentId, cancellationToken);
         PaymentStatus? fromStatus = existingPayment?.Status;
@@ -151,7 +187,7 @@ public class ProcessStripeEvent
         {
             string reason = $"Event {paymentEvent.EventId} requests {paymentEvent.RequestedStatus} for payment {paymentEvent.PaymentIntentId}, which is {fromStatus}.";
             this.logger.LogWarning("Impossible conflict: {Reason}", reason);
-            return new ProcessStripeEventResult(ProcessStripeEventOutcome.Conflict, reason);
+            return new AttemptResult(new ProcessStripeEventResult(ProcessStripeEventOutcome.Conflict, reason));
         }
 
         InboxEvent inboxEvent = new()
@@ -168,25 +204,26 @@ public class ProcessStripeEvent
         if (inboxResult == PaymentStoreWriteResult.DuplicateEvent)
         {
             this.logger.LogInformation("Event {EventId} was already processed", paymentEvent.EventId);
-            return new ProcessStripeEventResult(ProcessStripeEventOutcome.Duplicate);
+            return new AttemptResult(new ProcessStripeEventResult(ProcessStripeEventOutcome.Duplicate));
         }
 
         if (inboxResult == PaymentStoreWriteResult.ConcurrencyConflict)
         {
-            return new ProcessStripeEventResult(ProcessStripeEventOutcome.ConcurrencyConflict);
+            return new AttemptResult(new ProcessStripeEventResult(ProcessStripeEventOutcome.ConcurrencyConflict));
         }
 
+        Payment payment = existingPayment ?? new Payment(
+            paymentEvent.PaymentIntentId,
+            paymentEvent.RequestedStatus,
+            paymentEvent.Amount,
+            paymentEvent.AmountRefunded,
+            paymentEvent.Currency,
+            paymentEvent.EventId,
+            processedAt,
+            processedAt);
         if (existingPayment is null)
         {
-            this.paymentStore.AddPayment(new Payment(
-                paymentEvent.PaymentIntentId,
-                paymentEvent.RequestedStatus,
-                paymentEvent.Amount,
-                paymentEvent.AmountRefunded,
-                paymentEvent.Currency,
-                paymentEvent.EventId,
-                processedAt,
-                processedAt));
+            this.paymentStore.AddPayment(payment);
         }
 
         this.paymentStore.AddHistoryEntry(new PaymentHistoryEntry
@@ -202,7 +239,7 @@ public class ProcessStripeEvent
 
         if (await this.paymentStore.CommitAsync(cancellationToken) == PaymentStoreWriteResult.ConcurrencyConflict)
         {
-            return new ProcessStripeEventResult(ProcessStripeEventOutcome.ConcurrencyConflict);
+            return new AttemptResult(new ProcessStripeEventResult(ProcessStripeEventOutcome.ConcurrencyConflict));
         }
 
         this.logger.LogInformation(
@@ -210,7 +247,9 @@ public class ProcessStripeEvent
             paymentEvent.EventId,
             paymentEvent.PaymentIntentId,
             outcome);
-        return new ProcessStripeEventResult(ToProcessOutcome(outcome));
+        return new AttemptResult(
+            new ProcessStripeEventResult(ToProcessOutcome(outcome)),
+            new PaymentSummary(payment.PaymentIntentId, payment.Status, payment.Amount, payment.AmountRefunded, payment.Currency, payment.UpdatedAt));
     }
 
     private static string? HistoryReason(TransitionOutcome outcome)
@@ -233,4 +272,6 @@ public class ProcessStripeEvent
             _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "Unexpected transition outcome."),
         };
     }
+
+    private sealed record AttemptResult(ProcessStripeEventResult Result, PaymentSummary? Payment = null);
 }

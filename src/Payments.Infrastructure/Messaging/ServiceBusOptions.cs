@@ -10,6 +10,8 @@ public class ServiceBusOptions
 
     public string EventsQueueName { get; set; } = string.Empty;
 
+    public string NotificationsQueueName { get; set; } = string.Empty;
+
     public bool HasSingleEndpoint =>
         string.IsNullOrWhiteSpace(this.ConnectionString) != string.IsNullOrWhiteSpace(this.FullyQualifiedNamespace);
 }

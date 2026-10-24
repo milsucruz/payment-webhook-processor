@@ -20,6 +20,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Payments.Infrastructure\Payments.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Payments.Worker\Payments.Worker.csproj" />
+    <ProjectReference Include="..\..\src\Payments.Api\Payments.Api.csproj" Aliases="api" />
   </ItemGroup>
 
   <ItemGroup>
