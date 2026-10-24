@@ -283,7 +283,7 @@ Version 1 uses ASP.NET Core's own SignalR, hosted in the API with a single repli
 | `EventProcessed` | Server to client | Event ID and type, payment ID, outcome (applied, ignored out of order, redundant, duplicate) and trace ID (from task 5.6, when the worker has tracing) |
 | `QueueStats` | Server to client | Active and dead-lettered messages of `payment-events`, every 5 s while a client is connected |
 
-Enums go out as their names, as in the read API. `QueueStats` counts by peeking, which the API's Data Receiver role allows, and stops at 1000 per count: the exact counts would need the Manage right (Data Owner), which section 8 doesn't give the API.
+Enums go out as their names, as in the read API. `QueueStats` counts by peeking, which the API's Data Receiver role allows, and stops at 1000 per count, a limit it sends along so the screen can show "1000+": the exact counts would need the Manage right (Data Owner), which section 8 doesn't give the API.
 
 The client doesn't send commands through the hub. Actions such as reprocessing the dead-letter use the REST API, which is easier to authenticate and test.
 

@@ -18,7 +18,11 @@ A peek needs only Data Receiver, which the API already has for the readiness che
 
 ## The 1000 cap
 
-A peek transfers the message bodies (a Stripe event is a few KB). With a backlog of 100,000 messages a single read would download hundreds of MB every 5 s, so counting stops at 1000. A count of 1000 means "1000 or more", and the dashboard (task 5.5) should show it that way. In this project's demos the backlog is the `flood` mode's 100 messages, well under the cap.
+A peek transfers the message bodies (a Stripe event is a few KB). With a backlog of 100,000 messages a single read would download hundreds of MB every 5 s, so counting stops at 1000. `QueueStats` carries the cap as `CountLimit`, so the dashboard (task 5.5) can show a count equal to it as "1000+" without hard-coding a number that lives in Infrastructure (code review). That rule is always true: a count of exactly 1000 is also "1000 or more". In this project's demos the backlog is the `flood` mode's 100 messages, well under the cap.
+
+The two counts run in parallel (`Task.WhenAll`), each with its own receiver, so a tick takes the time of the slower subqueue, not the sum (code review).
+
+The batch loop looks like the one in `ServiceBusDeadLetterQueue.PeekAsync`, and the code review suggested a shared helper. They stay separate: one counts and the other maps each message to a `DeadLetter`, so a helper would need a callback to save about ten lines.
 
 ## What "active" means here
 

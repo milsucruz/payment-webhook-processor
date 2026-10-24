@@ -21,7 +21,7 @@ public sealed class GetQueueStats
             QueueStats stats = await this.queueStatsReader.ReadAsync(cancellationToken);
             return new GetQueueStatsResult(GetQueueStatsOutcome.Read, stats);
         }
-        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             this.logger.LogWarning(exception, "Failed to read the queue stats");
             return new GetQueueStatsResult(GetQueueStatsOutcome.Unavailable);

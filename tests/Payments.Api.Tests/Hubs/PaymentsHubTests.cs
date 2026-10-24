@@ -28,8 +28,8 @@ public class PaymentsHubTests : IClassFixture<WebApplicationFactory<Program>>
     [Fact]
     public async Task Connected_client_receives_queue_stats()
     {
-        FakeQueueStatsReader reader = new() { Stats = new QueueStats(3, 1) };
-        WebApplicationFactory<Program> app = this.CreateApp(reader);
+        FakeQueueStatsReader reader = new() { Stats = new QueueStats(3, 1, 1000) };
+        await using WebApplicationFactory<Program> app = this.CreateApp(reader);
         TaskCompletionSource<JsonElement> received = new(TaskCreationOptions.RunContinuationsAsynchronously);
         await using HubConnection connection = CreateConnection(app.Server);
         connection.On<JsonElement>(PaymentsHubMethods.QueueStats, message => received.TrySetResult(message));
@@ -39,13 +39,14 @@ public class PaymentsHubTests : IClassFixture<WebApplicationFactory<Program>>
 
         Assert.Equal(3, stats.GetProperty("activeMessages").GetInt32());
         Assert.Equal(1, stats.GetProperty("deadLetteredMessages").GetInt32());
+        Assert.Equal(1000, stats.GetProperty("countLimit").GetInt32());
     }
 
     [Fact]
     public async Task Queue_stats_are_not_read_while_no_client_is_connected()
     {
         FakeQueueStatsReader reader = new();
-        WebApplicationFactory<Program> app = this.CreateApp(reader);
+        await using WebApplicationFactory<Program> app = this.CreateApp(reader);
         _ = app.Server;
 
         await Task.Delay(statsInterval * 10);
@@ -57,7 +58,7 @@ public class PaymentsHubTests : IClassFixture<WebApplicationFactory<Program>>
     public async Task Unreadable_queue_sends_no_stats_and_keeps_the_api_up()
     {
         FakeQueueStatsReader reader = new() { Failure = new InvalidOperationException("Service Bus is down") };
-        WebApplicationFactory<Program> app = this.CreateApp(reader);
+        await using WebApplicationFactory<Program> app = this.CreateApp(reader);
         int received = 0;
         await using HubConnection connection = CreateConnection(app.Server);
         connection.On<JsonElement>(PaymentsHubMethods.QueueStats, _ => Interlocked.Increment(ref received));
@@ -76,7 +77,7 @@ public class PaymentsHubTests : IClassFixture<WebApplicationFactory<Program>>
     [Fact]
     public async Task Payment_status_is_sent_as_a_string()
     {
-        WebApplicationFactory<Program> app = this.CreateApp(new FakeQueueStatsReader());
+        await using WebApplicationFactory<Program> app = this.CreateApp(new FakeQueueStatsReader());
         TaskCompletionSource<JsonElement> received = new(TaskCreationOptions.RunContinuationsAsynchronously);
         await using HubConnection connection = CreateConnection(app.Server);
         connection.On<JsonElement>(PaymentsHubMethods.PaymentUpdated, message => received.TrySetResult(message));

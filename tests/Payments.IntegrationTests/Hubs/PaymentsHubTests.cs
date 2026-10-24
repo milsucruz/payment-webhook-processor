@@ -2,6 +2,7 @@ extern alias api;
 
 using System.Text.Json;
 using api::Payments.Api.Hubs;
+using Azure.Messaging.ServiceBus;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -50,7 +51,14 @@ public class PaymentsHubTests : IAsyncLifetime
                 eventProcessed.TrySetResult(message);
             }
         });
-        connection.On<JsonElement>(PaymentsHubMethods.QueueStats, message => queueStats.TrySetResult(message));
+        connection.On<JsonElement>(PaymentsHubMethods.QueueStats, message =>
+        {
+            if (message.GetProperty("deadLetteredMessages").GetInt32() == 1)
+            {
+                queueStats.TrySetResult(message);
+            }
+        });
+        await this.DeadLetterOneMessageAsync();
         await connection.StartAsync();
         await this.fixture.StartWorkerAsync(loggerProvider: null, faultInjection: false, overrideServices: null, CancellationToken.None);
 
@@ -65,8 +73,17 @@ public class PaymentsHubTests : IAsyncLifetime
         Assert.Equal("payment_intent.succeeded", processed.GetProperty("eventType").GetString());
         Assert.Equal(PaymentIntentId, processed.GetProperty("paymentIntentId").GetString());
         Assert.Equal("Applied", processed.GetProperty("outcome").GetString());
-        Assert.True(stats.GetProperty("activeMessages").GetInt32() >= 0);
-        Assert.True(stats.GetProperty("deadLetteredMessages").GetInt32() >= 0);
+        Assert.Equal(1000, stats.GetProperty("countLimit").GetInt32());
+    }
+
+    private async Task DeadLetterOneMessageAsync()
+    {
+        await using ServiceBusClient client = new(this.fixture.ServiceBusConnectionString);
+        await this.fixture.SendAsync("evt_hub_dead_letter", "{}", CancellationToken.None);
+        await using ServiceBusReceiver receiver = client.CreateReceiver(WorkerFixture.QueueName);
+        ServiceBusReceivedMessage? message = await receiver.ReceiveMessageAsync(TimeSpan.FromSeconds(10));
+        Assert.NotNull(message);
+        await receiver.DeadLetterMessageAsync(message, "InvalidEvent", "Hub test");
     }
 
     private static string Event(string eventId, string paymentIntentId) =>

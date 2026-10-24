@@ -21,9 +21,10 @@ public sealed class ServiceBusQueueStatsReader : IQueueStatsReader
 
     public async Task<QueueStats> ReadAsync(CancellationToken cancellationToken)
     {
-        int activeMessages = await this.CountAsync(SubQueue.None, cancellationToken);
-        int deadLetteredMessages = await this.CountAsync(SubQueue.DeadLetter, cancellationToken);
-        return new QueueStats(activeMessages, deadLetteredMessages);
+        Task<int> activeMessages = this.CountAsync(SubQueue.None, cancellationToken);
+        Task<int> deadLetteredMessages = this.CountAsync(SubQueue.DeadLetter, cancellationToken);
+        await Task.WhenAll(activeMessages, deadLetteredMessages);
+        return new QueueStats(await activeMessages, await deadLetteredMessages, MaxCountedMessages);
     }
 
     private async Task<int> CountAsync(SubQueue subQueue, CancellationToken cancellationToken)

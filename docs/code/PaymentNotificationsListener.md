@@ -19,6 +19,8 @@ Set in `Program.cs`, which registers a `ServiceBusClient` and the processor as k
 
 As in the worker, the handler catches nothing. An unreadable body makes `PaymentNotificationJson.Deserialize` throw, and the SDK calls `ProcessErrorAsync`, which logs it as an error. In `ReceiveAndDelete` the message is already gone, so a broken notification is logged once and never comes back.
 
+The hub sends run inside the same handler, so a send that fails also loses the notification (code review). `Clients.All.SendAsync` doesn't throw when one client's connection fails (the lifetime manager logs it and goes on), so in practice the sends fail only when the processor is stopping and cancels `args.CancellationToken`. A notification lost at shutdown is the case section 3 already accepts, and the dashboard recovers with the REST reload on reconnect (section 7). If `PaymentUpdated` fails, `EventProcessed` is skipped too, for the same reasons.
+
 ## The API at zero replicas
 
 The listener only runs while a replica is up. Container Apps scales the API by HTTP traffic, and an open AMQP link doesn't count, so the listener never keeps a replica alive. With the API at zero, notifications expire in the queue after 60 s, by design (section 3: "if nobody has the dashboard open, the API is at zero replicas and the notification simply expires"). Whether an open SignalR connection keeps the replica up is task 5.8.

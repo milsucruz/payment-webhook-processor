@@ -36,7 +36,7 @@ public class ServiceBusQueueStatsReaderTests : IAsyncLifetime
 
         QueueStats stats = await reader.ReadAsync(CancellationToken.None);
 
-        Assert.Equal(new QueueStats(3, 1), stats);
+        Assert.Equal(new QueueStats(3, 1, ServiceBusQueueStatsReader.MaxCountedMessages), stats);
     }
 
     [Fact]
@@ -47,6 +47,6 @@ public class ServiceBusQueueStatsReaderTests : IAsyncLifetime
 
         QueueStats stats = await reader.ReadAsync(CancellationToken.None);
 
-        Assert.Equal(new QueueStats(0, 0), stats);
+        Assert.Equal(new QueueStats(0, 0, ServiceBusQueueStatsReader.MaxCountedMessages), stats);
     }
 }

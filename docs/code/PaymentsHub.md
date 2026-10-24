@@ -10,7 +10,7 @@ The SignalR hub at `/hubs/payments` (section 7, task 5.3). The server pushes thr
 | --- | --- | --- |
 | `PaymentUpdated` | `PaymentNotificationsListener`, when the notification carries the payment | `PaymentSummary`, the same shape as an item of `GET /api/payments` |
 | `EventProcessed` | `PaymentNotificationsListener`, for every notification | `EventProcessedMessage`: event ID and type, payment ID, outcome |
-| `QueueStats` | `QueueStatsBroadcaster`, every 5 s while a client is connected | `QueueStats`: active and dead-lettered messages of `payment-events` |
+| `QueueStats` | `QueueStatsBroadcaster`, every 5 s while a client is connected | `QueueStats`: active and dead-lettered messages of `payment-events`, and `CountLimit`, the most a count reaches (see `ServiceBusQueueStatsReader.md`) |
 
 `PaymentUpdated` reuses the read API's shape, so the dashboard can put a pushed payment straight into the table it loaded over REST. The outcome in `EventProcessed` is `ProcessStripeEventOutcome` as it is (`Applied`, `IgnoredOutOfOrder`, `Redundant`, `Duplicate`): the worker only notifies those four (see "Notification" in `ProcessStripeEvent.md`). Section 7 also lists a trace ID. It has no source until the worker has tracing (task 5.6, `docs/pending.md`), and a field that is always `null` would promise something the system doesn't do.
 
@@ -37,6 +37,6 @@ CVE-2026-70159 (Microsoft.AspNetCore.SignalR.Common and .Core up to 10.0.12) let
 ## Tests
 
 - `tests/Payments.Api.Tests/Hubs/PaymentsHubTests.cs`, with `WebApplicationFactory` and a fake `IQueueStatsReader`: a connected client receives `QueueStats`; with no client, the stats are not read; a failing read sends nothing and the connection stays up; `PaymentUpdated` sends the status as a string.
-- `tests/Payments.IntegrationTests/Hubs/PaymentsHubTests.cs` is the task's done criterion: the real API (on the emulator) and the real worker process an event, and a client connected to the hub receives `PaymentUpdated`, `EventProcessed` and `QueueStats`.
+- `tests/Payments.IntegrationTests/Hubs/PaymentsHubTests.cs` is the task's done criterion: the real API (on the emulator) and the real worker process an event, and a client connected to the hub receives `PaymentUpdated`, `EventProcessed` and `QueueStats`. One message is dead-lettered before the client connects, and the test waits for a `QueueStats` that counts it, so stats from the wrong queue or a reader stuck at zero fail it (code review: the first version only checked the counts were not negative).
 
 The clients connect over WebSockets through `TestServer.CreateWebSocketClient()`, the transport the dashboard uses, with `HttpMessageHandlerFactory` set for the negotiate request.
