@@ -23,7 +23,7 @@ public sealed class GetQueueStats
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            this.logger.LogWarning(exception, "Failed to read the queue stats");
+            this.logger.LogWarning("Failed to read the queue stats: {Error}", exception.Message);
             return new GetQueueStatsResult(GetQueueStatsOutcome.Unavailable);
         }
     }

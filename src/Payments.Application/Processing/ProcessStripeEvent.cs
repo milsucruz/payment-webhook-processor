@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Payments.Application.Events;
 using Payments.Application.Notifications;
@@ -9,9 +10,14 @@ namespace Payments.Application.Processing;
 // Details: docs/code/ProcessStripeEvent.md
 public class ProcessStripeEvent
 {
+    public const string ActivitySourceName = "Payments.Processing";
+
     private const string OutOfOrderReason = "out of order";
     private const string RedundantReason = "redundant";
     private const int MaxConcurrencyAttempts = 3;
+    private const string TransactionActivityName = "payment transaction";
+
+    private static readonly ActivitySource activitySource = new(ActivitySourceName);
 
     private static readonly IReadOnlyList<TimeSpan> transientRetryDelays =
         [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15)];
@@ -75,13 +81,13 @@ public class ProcessStripeEvent
                 TimeSpan delay = transientRetryDelays[transientRetries];
                 transientRetries++;
                 this.logger.LogWarning(
-                    exception,
-                    "Transient error on payment {PaymentIntentId} for event {EventId}, retrying in {Delay} (retry {Retry} of {MaxRetries})",
+                    "Transient error on payment {PaymentIntentId} for event {EventId}, retrying in {Delay} (retry {Retry} of {MaxRetries}): {Error}",
                     paymentEvent.PaymentIntentId,
                     paymentEvent.EventId,
                     delay,
                     transientRetries,
-                    transientRetryDelays.Count);
+                    transientRetryDelays.Count,
+                    exception.Message);
                 await Task.Delay(delay, this.timeProvider, cancellationToken);
                 continue;
             }
@@ -124,7 +130,8 @@ public class ProcessStripeEvent
             paymentEvent.EventType,
             paymentEvent.PaymentIntentId,
             attemptResult.Result.Outcome,
-            attemptResult.Payment);
+            attemptResult.Payment,
+            Activity.Current?.TraceId.ToHexString());
         try
         {
             await this.notificationPublisher.PublishAsync(notification, cancellationToken);
@@ -143,19 +150,25 @@ public class ProcessStripeEvent
     {
         await this.faultInjector.InjectAsync(paymentEvent, attempt, cancellationToken);
         DateTimeOffset processedAt = this.timeProvider.GetUtcNow();
+        using Activity? activity = activitySource.StartActivity(TransactionActivityName);
+        activity?.SetTag("payments.event_id", paymentEvent.EventId);
+        activity?.SetTag("payments.payment_intent_id", paymentEvent.PaymentIntentId);
+        activity?.SetTag("payments.attempt", attempt);
         IAsyncDisposable transaction = await this.paymentStore.BeginTransactionAsync(cancellationToken);
         AttemptResult result;
         try
         {
             result = await this.DecideAndSaveAsync(paymentEvent, payload, processedAt, cancellationToken);
         }
-        catch
+        catch (Exception exception)
         {
+            activity?.SetStatus(ActivityStatusCode.Error, exception.Message);
             await this.DisposeFailedTransactionAsync(transaction, paymentEvent);
             throw;
         }
 
         await transaction.DisposeAsync();
+        activity?.SetTag("payments.outcome", result.Result.Outcome.ToString());
         return result;
     }
 
@@ -168,10 +181,10 @@ public class ProcessStripeEvent
         catch (Exception exception)
         {
             this.logger.LogWarning(
-                exception,
-                "Rollback failed after a failed attempt on payment {PaymentIntentId} for event {EventId}",
+                "Rollback failed after a failed attempt on payment {PaymentIntentId} for event {EventId}: {Error}",
                 paymentEvent.PaymentIntentId,
-                paymentEvent.EventId);
+                paymentEvent.EventId,
+                exception.Message);
         }
     }
 
@@ -200,6 +213,7 @@ public class ProcessStripeEvent
             ReceivedAt = processedAt,
             Outcome = outcome,
             Payload = payload,
+            TraceId = Activity.Current?.TraceId.ToHexString(),
         };
         PaymentStoreWriteResult inboxResult = await this.paymentStore.AddInboxEventAsync(inboxEvent, cancellationToken);
         if (inboxResult == PaymentStoreWriteResult.DuplicateEvent)

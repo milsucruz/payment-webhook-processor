@@ -16,12 +16,14 @@ public class PaymentNotificationJsonTests
             "charge.refunded",
             "pi_1",
             ProcessStripeEventOutcome.Applied,
-            new PaymentSummary("pi_1", PaymentStatus.PartiallyRefunded, 2000, 500, "brl", new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero)));
+            new PaymentSummary("pi_1", PaymentStatus.PartiallyRefunded, 2000, 500, "brl", new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero)),
+            "0af7651916cd43dd8448eb211c80319c");
 
         string json = PaymentNotificationJson.Serialize(notification);
 
         using JsonDocument document = JsonDocument.Parse(json);
         Assert.Equal("Applied", document.RootElement.GetProperty("outcome").GetString());
+        Assert.Equal("0af7651916cd43dd8448eb211c80319c", document.RootElement.GetProperty("traceId").GetString());
         Assert.Equal("PartiallyRefunded", document.RootElement.GetProperty("payment").GetProperty("status").GetString());
         Assert.Equal(notification, PaymentNotificationJson.Deserialize(json));
     }
@@ -29,7 +31,7 @@ public class PaymentNotificationJsonTests
     [Fact]
     public void Notification_without_a_payment_is_read_back_with_a_null_payment()
     {
-        PaymentNotification notification = new("evt_1", "payment_intent.succeeded", "pi_1", ProcessStripeEventOutcome.Duplicate, null);
+        PaymentNotification notification = new("evt_1", "payment_intent.succeeded", "pi_1", ProcessStripeEventOutcome.Duplicate, null, null);
 
         PaymentNotification read = PaymentNotificationJson.Deserialize(PaymentNotificationJson.Serialize(notification));
 

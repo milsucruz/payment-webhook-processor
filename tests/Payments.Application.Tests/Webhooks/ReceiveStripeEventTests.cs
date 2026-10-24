@@ -23,7 +23,9 @@ public class ReceiveStripeEventTests
         PublishedEvent published = Assert.Single(publisher.Published);
         Assert.Equal("evt_1PtTest", published.EventId);
         Assert.Equal(EventJson, published.Json);
-        Assert.Empty(this.logger.Levels);
+        LogEntry entry = Assert.Single(this.logger.Entries);
+        Assert.Equal(LogLevel.Information, entry.Level);
+        Assert.Contains("evt_1PtTest", entry.Message, StringComparison.Ordinal);
     }
 
     [Fact]

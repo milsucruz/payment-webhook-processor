@@ -17,7 +17,14 @@ public sealed class ServiceBusQueueHealthCheck : IHealthCheck
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken)
     {
         await using ServiceBusReceiver receiver = this.client.CreateReceiver(this.queueName);
-        await receiver.PeekMessageAsync(cancellationToken: cancellationToken);
+        try
+        {
+            await receiver.PeekMessageAsync(cancellationToken: cancellationToken);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return HealthCheckResult.Unhealthy(exception.Message);
+        }
 
         return HealthCheckResult.Healthy();
     }

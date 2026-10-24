@@ -43,7 +43,8 @@ public sealed class PaymentNotificationsListener : BackgroundService
             notification.EventId,
             notification.EventType,
             notification.PaymentIntentId,
-            notification.Outcome);
+            notification.Outcome,
+            notification.TraceId);
         await this.hubContext.Clients.All.SendAsync(PaymentsHubMethods.EventProcessed, eventProcessed, args.CancellationToken);
 
         this.logger.LogInformation(

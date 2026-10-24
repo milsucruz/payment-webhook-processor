@@ -54,6 +54,10 @@ module monitoring 'monitoring.bicep' = {
   params: {
     location: location
     namePrefix: namePrefix
+    apiPrincipalId: identity.outputs.apiPrincipalId
+    workerPrincipalId: identity.outputs.workerPrincipalId
+    apiIdentityName: apiIdentityName
+    workerIdentityName: workerIdentityName
   }
 }
 
@@ -89,6 +93,7 @@ module containerApps 'containerapps.bicep' = {
     sqlDatabaseName: sql.outputs.databaseName
     vaultUri: keyVault.outputs.vaultUri
     workspaceName: monitoring.outputs.workspaceName
+    appInsightsConnectionString: monitoring.outputs.appInsightsConnectionString
     faultInjectionEnabled: faultInjectionEnabled
   }
 }

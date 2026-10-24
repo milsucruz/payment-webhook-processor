@@ -9,10 +9,10 @@ The SignalR hub at `/hubs/payments` (section 7, task 5.3). The server pushes thr
 | Message | Sent by | Payload |
 | --- | --- | --- |
 | `PaymentUpdated` | `PaymentNotificationsListener`, when the notification carries the payment | `PaymentSummary`, the same shape as an item of `GET /api/payments` |
-| `EventProcessed` | `PaymentNotificationsListener`, for every notification | `EventProcessedMessage`: event ID and type, payment ID, outcome |
+| `EventProcessed` | `PaymentNotificationsListener`, for every notification | `EventProcessedMessage`: event ID and type, payment ID, outcome and trace ID |
 | `QueueStats` | `QueueStatsBroadcaster`, every 5 s while a client is connected | `QueueStats`: active and dead-lettered messages of `payment-events`, and `CountLimit`, the most a count reaches (see `ServiceBusQueueStatsReader.md`) |
 
-`PaymentUpdated` reuses the read API's shape, so the dashboard can put a pushed payment straight into the table it loaded over REST. The outcome in `EventProcessed` is `ProcessStripeEventOutcome` as it is (`Applied`, `IgnoredOutOfOrder`, `Redundant`, `Duplicate`): the worker only notifies those four (see "Notification" in `ProcessStripeEvent.md`). Section 7 also lists a trace ID. It has no source until the worker has tracing (task 5.6, `docs/pending.md`), and a field that is always `null` would promise something the system doesn't do.
+`PaymentUpdated` reuses the read API's shape, so the dashboard can put a pushed payment straight into the table it loaded over REST. The outcome in `EventProcessed` is `ProcessStripeEventOutcome` as it is (`Applied`, `IgnoredOutOfOrder`, `Redundant`, `Duplicate`): the worker only notifies those four (see "Notification" in `ProcessStripeEvent.md`). The trace ID (task 5.6) is the one the worker processed the event under, carried by the notification (see "Trace" in `ProcessStripeEvent.md`); it is `null` only when the worker runs without telemetry.
 
 ## Hub methods as constants, not a typed hub
 

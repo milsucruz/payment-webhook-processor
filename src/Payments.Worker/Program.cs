@@ -1,14 +1,18 @@
 using Azure.Messaging.ServiceBus;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Options;
 using Payments.Application.Notifications;
 using Payments.Application.Processing;
 using Payments.Infrastructure.Faults;
 using Payments.Infrastructure.Messaging;
 using Payments.Infrastructure.Persistence;
+using Payments.Infrastructure.Telemetry;
 using Payments.Worker;
 
 HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
+
+PaymentsTelemetry.Add(builder, "payments-worker");
 
 Program.AddPaymentEventsWorker(builder.Services, builder.Configuration);
 
@@ -69,7 +73,11 @@ public partial class Program
             throw new InvalidOperationException("ConnectionStrings:Payments is required.");
         }
 
-        services.AddDbContext<PaymentsDbContext>(options => options.UseSqlServer(paymentsConnectionString));
+        services.AddDbContext<PaymentsDbContext>(options => options
+            .UseSqlServer(paymentsConnectionString)
+            .ConfigureWarnings(warnings => warnings.Log(
+                (RelationalEventId.CommandError, LogLevel.Debug),
+                (CoreEventId.SaveChangesFailed, LogLevel.Debug))));
         services.AddScoped<IPaymentStore, PaymentStore>();
         services.AddSingleton<ITransientErrorDetector, SqlTransientErrorDetector>();
         services.AddSingleton(TimeProvider.System);

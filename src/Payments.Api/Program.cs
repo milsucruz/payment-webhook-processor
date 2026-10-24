@@ -17,10 +17,15 @@ using Payments.Application.Queues;
 using Payments.Application.Reading;
 using Payments.Application.Webhooks;
 using Payments.Infrastructure.Messaging;
+using OpenTelemetry.Trace;
 using Payments.Infrastructure.Persistence;
+using Payments.Infrastructure.Telemetry;
 using Payments.Infrastructure.Webhooks;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+
+PaymentsTelemetry.Add(builder, "payments-api", tracing => tracing.AddAspNetCoreInstrumentation(options =>
+    options.Filter = httpContext => !httpContext.Request.Path.StartsWithSegments("/health")));
 
 builder.Services.AddControllers()
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
