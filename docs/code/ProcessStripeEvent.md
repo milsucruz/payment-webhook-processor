@@ -7,10 +7,10 @@ Processing use case: turns a Stripe event taken from the queue into a change to 
 ## `ExecuteAsync`
 
 ```csharp
-Task<ProcessStripeEventResult> ExecuteAsync(string payload, CancellationToken cancellationToken)
+Task<ProcessStripeEventResult> ExecuteAsync(string payload, DateTimeOffset receivedAt, CancellationToken cancellationToken)
 ```
 
-The payload is the message body, the original JSON that the API published. The use case parses it itself because the inbox stores it as is (`Payload`), and because an unreadable body must turn into a result, not an exception (see "Invalid event").
+The payload is the message body, the original JSON that the API published. `receivedAt` is the message's enqueue time, used only for the `event.processing.duration` metric (task 5.7): when the attempt loop ends with any outcome but `ConcurrencyConflict`, the use case hands the outcome and `now - receivedAt` to `PaymentsMetrics`, which counts duplicates and out-of-order events and records the duration of the outcomes that committed (see `docs/code/PaymentsMetrics.md`). The use case parses it itself because the inbox stores it as is (`Payload`), and because an unreadable body must turn into a result, not an exception (see "Invalid event").
 
 | Step | Result | Writes | Log |
 | --- | --- | --- | --- |

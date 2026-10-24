@@ -218,3 +218,4 @@ resource migrationJob 'Microsoft.App/jobs@2025-01-01' = {
 }
 
 output apiFqdn string = api.properties.configuration.ingress.fqdn
+output apiName string = api.name

@@ -8,11 +8,13 @@ public static class FloodMode
 {
     public const int DefaultCount = 100;
 
-    public const string DemoFault = "slow";
+    public const string DefaultFault = "slow";
+
+    public static IReadOnlySet<string> Faults { get; } = new HashSet<string> { "slow", "transient", "poison" };
 
     public static TimeSpan SendInterval { get; } = TimeSpan.FromMilliseconds(125);
 
-    public static string BuildEvent(string runId, int index, long created)
+    public static string BuildEvent(string runId, int index, long created, string fault)
     {
         string suffix = $"flood_{runId}_{index:D4}";
 
@@ -32,7 +34,7 @@ public static class FloodMode
                     amount = PayMode.AmountInCents,
                     currency = PayMode.Currency,
                     status = "succeeded",
-                    metadata = new Dictionary<string, string> { ["demo_fault"] = DemoFault },
+                    metadata = new Dictionary<string, string> { ["demo_fault"] = fault },
                 },
             },
         });
@@ -43,11 +45,12 @@ public static class FloodMode
         Uri webhookUrl,
         string webhookSecret,
         int count,
+        string fault,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
         string runId = Guid.NewGuid().ToString("N")[..8];
-        Console.WriteLine($"Flooding {webhookUrl} with {count} payments (run {runId}, demo_fault={DemoFault}).");
+        Console.WriteLine($"Flooding {webhookUrl} with {count} payments (run {runId}, demo_fault={fault}).");
 
         SortedDictionary<HttpStatusCode, int> responses = [];
         for (int index = 1; index <= count; index++)
@@ -58,7 +61,7 @@ public static class FloodMode
             }
 
             long now = timeProvider.GetUtcNow().ToUnixTimeSeconds();
-            string payload = BuildEvent(runId, index, now);
+            string payload = BuildEvent(runId, index, now, fault);
             using HttpRequestMessage request = new(HttpMethod.Post, webhookUrl)
             {
                 Content = new StringContent(payload, Encoding.UTF8, "application/json"),

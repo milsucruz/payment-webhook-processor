@@ -15,6 +15,7 @@ using Payments.Application.DeadLetters;
 using Payments.Application.Messaging;
 using Payments.Application.Queues;
 using Payments.Application.Reading;
+using Payments.Application.Telemetry;
 using Payments.Application.Webhooks;
 using Payments.Infrastructure.Messaging;
 using OpenTelemetry.Trace;
@@ -110,6 +111,7 @@ builder.Services.AddDbContext<PaymentsDbContext>(options =>
     options.UseSqlServer(paymentsConnectionString, sqlServer => sqlServer.EnableRetryOnFailure()));
 builder.Services.AddScoped<IPaymentReader, PaymentReader>();
 
+builder.Services.AddSingleton<PaymentsMetrics>();
 builder.Services.AddSingleton<ReceiveStripeEvent>();
 builder.Services.AddSingleton<ListDeadLetters>();
 builder.Services.AddSingleton<ReprocessDeadLetter>();

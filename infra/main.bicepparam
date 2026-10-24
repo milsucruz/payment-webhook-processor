@@ -8,3 +8,4 @@ param apiImageTag = readEnvironmentVariable('API_IMAGE_TAG')
 param workerImageTag = readEnvironmentVariable('WORKER_IMAGE_TAG')
 param migratorImageTag = readEnvironmentVariable('MIGRATOR_IMAGE_TAG')
 param faultInjectionEnabled = true
+param alertEmail = readEnvironmentVariable('ALERT_EMAIL')

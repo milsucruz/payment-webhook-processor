@@ -397,18 +397,24 @@ The exporter authenticates with the container's managed identity (Monitoring Met
 
 ### Custom metrics
 
-| Metric | Type | Question it answers |
-| --- | --- | --- |
-| `events.received` | Counter, by type | How much is coming in? |
-| `events.duplicate` | Counter | How many repeated deliveries did idempotency absorb? |
-| `events.out_of_order` | Counter | How many events were ignored as out of order? |
-| `events.dead_lettered` | Counter, by reason | What could the system not process? |
-| `event.processing.duration` | Histogram | How long from receipt to commit? |
+| Metric | Type | Question it answers | Measured in |
+| --- | --- | --- | --- |
+| `events.received` | Counter, by type | How much is coming in? | API, after the event is published to the queue |
+| `events.duplicate` | Counter | How many repeated deliveries did idempotency absorb? | Worker, when the inbox already has the event |
+| `events.out_of_order` | Counter | How many events were ignored as out of order? | Worker, after the commit |
+| `events.dead_lettered` | Counter, by reason | What could the system not process? | Worker, after it dead-letters a permanent error |
+| `event.processing.duration` | Histogram, in seconds | How long from receipt to commit? | Worker, after the commit of an applied, ignored or redundant event |
+
+All five live in one meter, `Payments`, exported by the same Azure Monitor exporter as the traces; they land in the `customMetrics` table, with the tags `payments.event_type`, `payments.dead_letter_reason` and `payments.outcome` as dimensions. Receipt is the message's enqueue time, milliseconds after the API accepted the webhook, so the duration includes the wait in the queue, the retries and the redeliveries. `events.dead_lettered` counts only what the worker sends to the dead-letter itself (`InvalidEvent`, `ImpossibleConflict`): a message that reaches it by `MaxDeliveryCountExceeded` is moved by Service Bus, which the code never sees, so the full count is the Service Bus metric the alert below uses.
 
 ### Alerts
 
-- **Dead-letter above zero:** Service Bus metric, filtered to `payment-events`, with email.
-- **Webhook failures:** more than 5 `5xx` responses in 5 minutes.
+Both are Azure Monitor metric alerts (`infra/alerts.bicep`) that send an email through one action group, evaluated every minute over a 5-minute window. They are stateful: an alert fires once, and resolves by itself when its condition is false again.
+
+- **Dead-letter above zero:** the Service Bus `DeadletteredMessages` metric, filtered to `payment-events`, with a maximum above 0. While anything stays in the dead-letter the alert stays fired and sends no new email, so the dead-letter has to be emptied (reprocessed or purged with `infra/servicebus/purge-dead-letters.ps1`) for the next dead-lettered message to alert again.
+- **Webhook failures:** the API container app's `Requests` platform metric, filtered to the `5xx` status category, with a total above 5. The platform metric is counted by the ingress, so it also sees the `502` and `503` of an API that doesn't start, when the app itself sends no telemetry. It covers every route of the API; only the webhook answers `5xx` by design, but an unhandled error in a read would count too. A log alert on the webhook's requests would be exact, but it costs about US$ 1.50 a month per rule, against about US$ 0.10 for a metric alert.
+
+**Emails on the Free Trial subscription.** The project runs on an Azure Free Trial subscription (`quotaId` `FreeTrial_2014-09-01`, spending limit on), kept on purpose so that nothing can bill past the credit. In task 5.7 the alerts fired and the alert history recorded "Action group executed" for each fire and resolve, but no alert email arrived; the action group's welcome email did. The action group's test notification answers "Free subscription not supported", and no Microsoft document found says whether the trial also holds back real alert emails. So on this subscription an alert is visible in **Monitor → Alerts** and in its history, not in the inbox. Upgrading to pay as you go would lift the spending limit, which the project doesn't accept; another channel (a Logic App or a function sending the email) would add a resource for a demo need (`docs/pending.md`).
 
 ### Volume control
 
@@ -425,7 +431,7 @@ The database is deliberately left out of the API's readiness check: it may be pa
 
 ## 10. Infrastructure, cost and deploy
 
-All infrastructure is created by Bicep, except the resource group and the budget, which task 4.1 created by hand in the portal (see `docs/pending.md`), and the pipeline's identity, which cannot grant itself its own roles: `infra/pipeline/setup-oidc.ps1` (task 4.8), run once by the developer, creates the app registration, its federated credential and its two role assignments on the group. The infrastructure fits within the free allowances, except for Service Bus, billed per million operations, and Key Vault, billed per 10,000 operations. Both come to cents at this volume.
+All infrastructure is created by Bicep, except the resource group and the budget, which task 4.1 created by hand in the portal (see `docs/pending.md`), and the pipeline's identity, which cannot grant itself its own roles: `infra/pipeline/setup-oidc.ps1` (task 4.8), run once by the developer, creates the app registration, its federated credential and its two role assignments on the group. The infrastructure fits within the free allowances, except for Service Bus, billed per million operations, Key Vault, billed per 10,000 operations, and the two alert rules, billed per month. All three come to cents at this volume.
 
 ### Resources and cost
 
@@ -435,6 +441,7 @@ All infrastructure is created by Bicep, except the resource group and the budget
 | Service Bus | Basic | Billed per million operations, no fixed fee ([pricing](https://azure.microsoft.com/en-us/pricing/details/service-bus/)) |
 | Azure SQL Database | Free offer, serverless | 100,000 vCore-seconds and 32 GB per month, for the life of the subscription ([documentation](https://learn.microsoft.com/en-us/azure/azure-sql/database/free-offer)) |
 | Application Insights and Log Analytics | Pay as you go | First 5 GB of ingestion per month free |
+| Azure Monitor alerts | Metric alerts and an action group | About US$ 0.10 a month per alert rule (one monitored time series each); the first 1,000 emails a month are free ([pricing](https://azure.microsoft.com/en-us/pricing/details/monitor/)) |
 | Key Vault | Standard | Billed per 10,000 operations; cents at this volume |
 | GitHub Container Registry | Public repository | Free |
 | Azure SignalR Service (optional milestone) | Free | 20 concurrent connections and 20,000 messages per day ([pricing](https://azure.microsoft.com/en-us/pricing/details/signalr-service/)) |
@@ -467,8 +474,9 @@ New Azure accounts get US$ 200 of credit for 30 days, which covers any overrun d
 | `servicebus.bicep` | Namespace, both queues and the role assignments |
 | `sql.bicep` | Server, free database, Entra ID admin and the Azure services firewall rule |
 | `keyvault.bicep` | Vault and role assignments |
-| `monitoring.bicep` | Log Analytics, Application Insights and alerts |
+| `monitoring.bicep` | Log Analytics and Application Insights |
 | `containerapps.bicep` | Environment, API, worker and migration job |
+| `alerts.bicep` | Action group and the two metric alerts; a module of its own because the alerts need the namespace and the API, and the container apps already depend on `monitoring.bicep` |
 
 ### Pipeline
 
@@ -599,7 +607,7 @@ Eight points need to be validated early, because a surprise in any of them chang
 | The role the KEDA rule needs to read the queue length may be broader than Data Receiver | M4. Task 4.7: not needed. The rule, with the worker's identity and only its Data Receiver role on `payment-events`, scaled the worker from 0 to 3 replicas with 96 messages in the queue, although the KEDA docs ask for Manage access with a connection string | Assign the role indicated in the KEDA docs to that identity only, and add it to the roles the pipeline's condition allows (section 8) |
 | The API's cold start may exceed Stripe's response timeout | M4. Task 4.7 measured 27.7 s for the first webhook from zero replicas (task 4.6 saw 9.4 s): about 19 s placing the replica and pulling the image, about 7 s from the app listening to the `200`, readiness probe included; the publish didn't time out. Task 4.9 confirmed it with real deliveries: with the API at zero, a `stripe trigger` woke a replica in 2 s and the app listened 17 s later; of the two events, `created` was accepted and `succeeded` was not, and waited for Stripe's retry (about 1 h in another run). The minimum stays at zero (a warm replica would cost about US$ 4 a month after the free grant, most of the US$ 5 budget); before a demo, call `/health/live` to warm the API | Stripe resends; if it becomes a nuisance, minimum replica of 1 |
 | A paused database delays the first event by tens of seconds | M4. Task 4.8 measured a resume of about 46 s. In the task 4.10 baseline, with the old delays (200 ms, 1 s, 5 s), each attempt waited the 15 s connection timeout and both events were applied in the first delivery, about 55 s after the worker started, so that resume took about 55 s. A login refused at once (error 40613) would have left the message about 31 s, so task 4.10 raised the delays to 1 s, 5 s and 15 s (ADR 0011) | The retry delays cover it, not the lock: an abandon releases the lock at once. If a resume ever outlasts 5 deliveries, lengthen the delays again |
-| The Service Bus emulator may behave differently from the cloud in delivery counting | M3. Task 3.5 found the emulator's count: a peek shows the deliveries that ended without a settlement (0 when the worker dead-letters on the first delivery, 5 after `MaxDeliveryCountExceeded`), a receive shows one more. Task 5.5 compared the cloud: after the reprocess endpoint received and abandoned two dead-lettered messages, a peek still showed 5, as in the emulator. The time of a reprocess with about 100 messages is still to measure (`docs/pending.md`) | Also run the dead-letter tests against the real namespace in the pipeline |
+| The Service Bus emulator may behave differently from the cloud in delivery counting | M3. Task 3.5 found the emulator's count: a peek shows the deliveries that ended without a settlement (0 when the worker dead-letters on the first delivery, 5 after `MaxDeliveryCountExceeded`), a receive shows one more. Task 5.5 compared the cloud: after the reprocess endpoint received and abandoned two dead-lettered messages, a peek still showed 5, as in the emulator. Task 5.7 measured a reprocess with 104 messages in the cloud dead-letter (a `flood` of 100 `poison` payments plus 4 older ones): an unknown sequence number, which receives, locks and abandons all of them in batches of 50, answered `404` in 2.7 s, as with 2 messages; about 2 s of it is the empty receive that ends the search | Also run the dead-letter tests against the real namespace in the pipeline |
 | Service Bus may not receive a specific dead-letter message by ID; only deferred messages are received by sequence number | M3. Confirmed in task 3.4: the SDK receives by sequence number only deferred messages, so plan B is in use | The reprocess endpoint receives a batch from the dead-letter, republishes and completes the matching message, and abandons the others |
 | The pipeline may need more roles than Contributor and the conditioned Role Based Access Control Administrator | M4. Task 4.8: not needed. With only those two roles on the group, the pipeline ran `what-if`, deployed the Bicep with its six role assignments, started the migration job and updated both apps | Add the missing role at the narrowest scope and record it in section 8 |
 | The Service Bus SDK may not link the worker's span to the API's even with the experimental `ActivitySource` switch on | M5 | Read `Diagnostic-Id` from the message properties and start the worker's span with that parent by hand |

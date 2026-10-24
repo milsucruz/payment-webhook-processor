@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Payments.Application.Messaging;
+using Payments.Application.Telemetry;
 
 namespace Payments.Application.Webhooks;
 
@@ -8,18 +9,22 @@ namespace Payments.Application.Webhooks;
 public class ReceiveStripeEvent
 {
     private const int MaxEventIdLength = 128;
+    private const string UnknownEventType = "unknown";
 
     private readonly IWebhookSignatureVerifier signatureVerifier;
     private readonly IEventPublisher eventPublisher;
+    private readonly PaymentsMetrics metrics;
     private readonly ILogger<ReceiveStripeEvent> logger;
 
     public ReceiveStripeEvent(
         IWebhookSignatureVerifier signatureVerifier,
         IEventPublisher eventPublisher,
+        PaymentsMetrics metrics,
         ILogger<ReceiveStripeEvent> logger)
     {
         this.signatureVerifier = signatureVerifier;
         this.eventPublisher = eventPublisher;
+        this.metrics = metrics;
         this.logger = logger;
     }
 
@@ -32,13 +37,14 @@ public class ReceiveStripeEvent
             return ReceiveStripeEventResult.InvalidSignature;
         }
 
-        string? eventId = ReadEventId(payload);
-        if (eventId is null)
+        EventEnvelope? envelope = ReadEnvelope(payload);
+        if (envelope is null)
         {
             this.logger.LogWarning("Rejected Stripe webhook: the body has no valid event id");
             return ReceiveStripeEventResult.InvalidEventId;
         }
 
+        string eventId = envelope.EventId;
         try
         {
             await this.eventPublisher.PublishAsync(eventId, payload, cancellationToken);
@@ -55,10 +61,11 @@ public class ReceiveStripeEvent
         }
 
         this.logger.LogInformation("Published Stripe event {EventId}", eventId);
+        this.metrics.EventReceived(envelope.EventType);
         return ReceiveStripeEventResult.Published;
     }
 
-    private static string? ReadEventId(string payload)
+    private static EventEnvelope? ReadEnvelope(string payload)
     {
         try
         {
@@ -71,11 +78,21 @@ public class ReceiveStripeEvent
             }
 
             string? eventId = idElement.GetString();
-            return string.IsNullOrWhiteSpace(eventId) || eventId.Length > MaxEventIdLength ? null : eventId;
+            if (string.IsNullOrWhiteSpace(eventId) || eventId.Length > MaxEventIdLength)
+            {
+                return null;
+            }
+
+            string eventType = document.RootElement.TryGetProperty("type", out JsonElement typeElement) && typeElement.ValueKind == JsonValueKind.String
+                ? typeElement.GetString()!
+                : UnknownEventType;
+            return new EventEnvelope(eventId, eventType);
         }
         catch (JsonException)
         {
             return null;
         }
     }
+
+    private sealed record EventEnvelope(string EventId, string EventType);
 }

@@ -3,6 +3,8 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Payments.Application.Processing;
+using Payments.Application.Telemetry;
+using Payments.Application.Tests.Telemetry;
 using Payments.Domain;
 using Payments.Infrastructure.Faults;
 using Payments.Infrastructure.Persistence;
@@ -63,9 +65,9 @@ public class ProcessStripeEventBrokenConnectionTests : IAsyncLifetime
     {
         await using PaymentsDbContext processingContext = this.CreateDbContext();
         PausingPaymentStore store = new(processingContext, this.container, rollBackOnDispose);
-        ProcessStripeEvent processStripeEvent = new(store, new SqlTransientErrorDetector(), new NoFaultInjector(), new DiscardingNotificationPublisher(), TimeProvider.System, NullLogger<ProcessStripeEvent>.Instance);
+        ProcessStripeEvent processStripeEvent = new(store, new SqlTransientErrorDetector(), new NoFaultInjector(), new DiscardingNotificationPublisher(), TimeProvider.System, new PaymentsMetrics(new TestMeterFactory()), NullLogger<ProcessStripeEvent>.Instance);
 
-        ProcessStripeEventResult result = await processStripeEvent.ExecuteAsync(Payload, CancellationToken.None);
+        ProcessStripeEventResult result = await processStripeEvent.ExecuteAsync(Payload, DateTimeOffset.UtcNow, CancellationToken.None);
 
         Assert.Equal(ProcessStripeEventOutcome.Applied, result.Outcome);
         Assert.Equal(2, store.Transactions);

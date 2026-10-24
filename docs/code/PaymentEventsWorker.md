@@ -7,7 +7,7 @@ The adapter between the `payment-events` queue and `ProcessStripeEvent` (see `do
 ## What it does per message
 
 1. Opens a DI scope. `ProcessStripeEvent`, `PaymentStore` and `PaymentsDbContext` are scoped, so each message gets its own context and its own transaction. A `DbContext` is not thread-safe, and the processor runs four handlers at once.
-2. Calls `ExecuteAsync` with the body as a string and the processor's cancellation token. The worker never reads the event itself (layering rule in `CLAUDE.md`).
+2. Calls `ExecuteAsync` with the body as a string, the message's `EnqueuedTime` (the start of the `event.processing.duration` metric, task 5.7) and the processor's cancellation token. The worker never reads the event itself (layering rule in `CLAUDE.md`).
 3. Settles the message from the result:
 
 | Result | Settlement | Why |
@@ -18,6 +18,8 @@ The adapter between the `payment-events` queue and `ProcessStripeEvent` (see `do
 | `Conflict` | Dead-letter, reason `ImpossibleConflict` | Permanent error: the event contradicts a recorded fact, and no retry changes that (section 6). See below |
 | `ConcurrencyConflict` | Abandon, with `LastFailureReason` (see below) | The use case already retried from the read 3 times (`MaxConcurrencyAttempts`) (task 2.6). Losing that many races in a row is unlikely but not a broken assumption, so the message goes back for a later delivery |
 | `TransientFailure` | Abandon, with `LastFailureReason` (see below) | The use case already made 1 attempt plus 3 retries with 21 s of waits (task 3.1, delays from ADR 0011, `docs/code/ProcessStripeEvent.md`). The database is still unreachable, so the message goes back and Service Bus delivers it again, up to 5 times. Not a permanent error |
+
+After a dead-letter call returns, the worker counts it in `events.dead_lettered` with the same reason code (task 5.7). It is counted here and not in the use case because only here is the message known to be in the dead-letter; a message that Service Bus dead-letters after 5 deliveries is not counted (see `docs/code/PaymentsMetrics.md`).
 
 `CompleteMessageAsync` only runs after `ExecuteAsync` returns, and `ExecuteAsync` only returns those outcomes after the commit. If the worker dies between the two, the message comes back and the inbox turns it into a `Duplicate`. Since task 5.2 the use case also publishes the notification before returning, so it goes out after the commit and before the completion (see "Notification" in `docs/code/ProcessStripeEvent.md`).
 

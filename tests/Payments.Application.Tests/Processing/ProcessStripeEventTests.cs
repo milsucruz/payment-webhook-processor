@@ -1,20 +1,27 @@
 using System.Diagnostics;
+using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using Microsoft.Extensions.Logging;
 using Payments.Application.Events;
 using Payments.Application.Notifications;
 using Payments.Application.Processing;
 using Payments.Application.Reading;
+using Payments.Application.Telemetry;
 using Payments.Application.Tests.Notifications;
+using Payments.Application.Tests.Telemetry;
 using Payments.Application.Tests.Webhooks;
 using Payments.Domain;
 
 namespace Payments.Application.Tests.Processing;
 
-public class ProcessStripeEventTests
+public class ProcessStripeEventTests : IDisposable
 {
     private static readonly string fixturesDirectory = Path.Combine(AppContext.BaseDirectory, "fixtures");
     private static readonly DateTimeOffset earlierAt = new(2026, 10, 17, 9, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset processedAt = new(2026, 10, 17, 12, 0, 0, TimeSpan.Zero);
+    private static readonly DateTimeOffset receivedAt = processedAt.AddSeconds(-2);
+
+    private readonly TestMeterFactory meterFactory = new();
+    private readonly PaymentsMetrics metrics;
 
     private readonly InMemoryPaymentStore store = new();
     private readonly CollectingLogger<ProcessStripeEvent> logger = new();
@@ -22,6 +29,13 @@ public class ProcessStripeEventTests
     private readonly TestFaultInjector faultInjector = new();
     private readonly RecordingNotificationPublisher notificationPublisher = new();
     private readonly DelayTrackingTimeProvider timeProvider = new(processedAt);
+
+    public ProcessStripeEventTests()
+    {
+        this.metrics = new PaymentsMetrics(this.meterFactory);
+    }
+
+    public void Dispose() => this.meterFactory.Dispose();
 
     [Fact]
     public async Task Event_for_an_unknown_payment_creates_it_in_the_requested_state()
@@ -658,10 +672,97 @@ public class ProcessStripeEventTests
         Assert.IsType<TransientTestException>(warnings[3].Exception);
     }
 
+    [Fact]
+    public async Task Applied_event_records_the_time_since_it_entered_the_queue_and_counts_nothing_else()
+    {
+        using MetricCollector<double> duration = this.Collect<double>("event.processing.duration");
+        using MetricCollector<long> duplicates = this.Collect<long>("events.duplicate");
+        using MetricCollector<long> outOfOrder = this.Collect<long>("events.out_of_order");
+
+        await this.Process(ReadFixture("payment_intent.succeeded.json"));
+
+        CollectedMeasurement<double> measurement = Assert.Single(duration.GetMeasurementSnapshot());
+        Assert.Equal(2, measurement.Value);
+        Assert.Equal("Applied", measurement.Tags["payments.outcome"]);
+        Assert.Empty(duplicates.GetMeasurementSnapshot());
+        Assert.Empty(outOfOrder.GetMeasurementSnapshot());
+    }
+
+    [Fact]
+    public async Task Recorded_duration_includes_the_transient_retry_delays()
+    {
+        using MetricCollector<double> duration = this.Collect<double>("event.processing.duration");
+        this.store.CommitExceptions.Enqueue(new TransientTestException());
+        this.store.CommitExceptions.Enqueue(new TransientTestException());
+
+        await this.ProcessThroughDelays(ReadFixture("payment_intent.succeeded.json"), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5));
+
+        Assert.Equal(8, Assert.Single(duration.GetMeasurementSnapshot()).Value);
+    }
+
+    [Fact]
+    public async Task Enqueue_time_ahead_of_the_worker_clock_records_zero_not_a_negative_duration()
+    {
+        using MetricCollector<double> duration = this.Collect<double>("event.processing.duration");
+        ProcessStripeEvent processStripeEvent = new(this.store, this.transientErrorDetector, this.faultInjector, this.notificationPublisher, this.timeProvider, this.metrics, this.logger);
+
+        await processStripeEvent.ExecuteAsync(ReadFixture("payment_intent.succeeded.json"), processedAt.AddSeconds(1), CancellationToken.None);
+
+        Assert.Equal(0, Assert.Single(duration.GetMeasurementSnapshot()).Value);
+    }
+
+    [Fact]
+    public async Task Duplicate_event_is_counted_and_records_no_duration()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        await this.Process(payload);
+        using MetricCollector<double> duration = this.Collect<double>("event.processing.duration");
+        using MetricCollector<long> duplicates = this.Collect<long>("events.duplicate");
+
+        await this.Process(payload);
+
+        Assert.Equal(1, Assert.Single(duplicates.GetMeasurementSnapshot()).Value);
+        Assert.Empty(duration.GetMeasurementSnapshot());
+    }
+
+    [Fact]
+    public async Task Out_of_order_event_is_counted_and_records_its_duration()
+    {
+        string payload = ReadFixture("payment_intent.created.json");
+        this.Seed(StripeEventParser.Parse(payload), PaymentStatus.Paid, amountRefunded: 0);
+        using MetricCollector<double> duration = this.Collect<double>("event.processing.duration");
+        using MetricCollector<long> outOfOrder = this.Collect<long>("events.out_of_order");
+
+        await this.Process(payload);
+
+        Assert.Equal(1, Assert.Single(outOfOrder.GetMeasurementSnapshot()).Value);
+        Assert.Equal("IgnoredOutOfOrder", Assert.Single(duration.GetMeasurementSnapshot()).Tags["payments.outcome"]);
+    }
+
+    [Fact]
+    public async Task Failures_that_commit_nothing_record_no_metric()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        this.Seed(StripeEventParser.Parse(payload), PaymentStatus.Canceled, amountRefunded: 0);
+        using MetricCollector<double> duration = this.Collect<double>("event.processing.duration");
+        using MetricCollector<long> duplicates = this.Collect<long>("events.duplicate");
+        using MetricCollector<long> outOfOrder = this.Collect<long>("events.out_of_order");
+
+        await this.Process(payload);
+        await this.Process("{}");
+
+        Assert.Empty(duration.GetMeasurementSnapshot());
+        Assert.Empty(duplicates.GetMeasurementSnapshot());
+        Assert.Empty(outOfOrder.GetMeasurementSnapshot());
+    }
+
+    private MetricCollector<T> Collect<T>(string instrumentName)
+        where T : struct => new(this.meterFactory, PaymentsMetrics.MeterName, instrumentName);
+
     private Task<ProcessStripeEventResult> Process(string payload, CancellationToken cancellationToken = default)
     {
-        ProcessStripeEvent processStripeEvent = new(this.store, this.transientErrorDetector, this.faultInjector, this.notificationPublisher, this.timeProvider, this.logger);
-        return processStripeEvent.ExecuteAsync(payload, cancellationToken);
+        ProcessStripeEvent processStripeEvent = new(this.store, this.transientErrorDetector, this.faultInjector, this.notificationPublisher, this.timeProvider, this.metrics, this.logger);
+        return processStripeEvent.ExecuteAsync(payload, receivedAt, cancellationToken);
     }
 
     private async Task<ProcessStripeEventResult> ProcessThroughDelays(string payload, params TimeSpan[] expectedDelays)
