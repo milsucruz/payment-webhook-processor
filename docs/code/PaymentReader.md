@@ -35,9 +35,9 @@ Two queries: the payment by primary key, then its history joined to `InboxEvents
 
 ## Running as the API identity
 
-In the cloud the API connects with its managed identity, which has only `db_datareader` (section 8). Task 5.1 checked it: signed in as the Entra admin, `EXECUTE AS USER = 'id-payment-webhooks-api'` read `Payments` and an `INSERT` failed with error 229 (`The INSERT permission was denied`), inside a transaction that was rolled back. Locally the API connects as `sa`, like the worker, because the compose SQL Server has no other login.
+In the cloud the API connects with its managed identity, which has only `db_datareader` (section 8). Task 5.1 checked it: signed in as the Entra admin, `EXECUTE AS USER = 'id-payment-webhooks-api'` read `Payments` and an `INSERT` failed with error 229 (`The INSERT permission was denied`), inside a transaction that was rolled back. Locally the API connects as `sa`, like the worker, because the compose SQL Server has no other login, and it waits for the `migrator` service like the worker, so the first read on a fresh volume doesn't meet a database without tables.
 
-The API's `DbContext` uses `EnableRetryOnFailure`. Reads are idempotent, and a paused free database refuses the first login (section 10, task 4.10), so without the retry the first dashboard load after a pause would be a `500`. The worker doesn't use the retry strategy because it has its own retry (`docs/code/ProcessStripeEvent.md`) and user transactions, which the strategy doesn't allow.
+The API's `DbContext` uses `EnableRetryOnFailure`. Reads are idempotent, and a paused free database refuses the first login (section 10, task 4.10), so without the retry the first dashboard load after a pause would be a `500`. The defaults are kept: 6 retries with exponential delays capped at 30 s add up to well over the ~55 s resume measured in task 4.10, and the strategy's transient list includes 40613 (database not available) and -2 (timeout), the two errors a paused database gave. The cost is that the first load after a pause can take about a minute, which is the resume itself. The worker doesn't use the retry strategy because it has its own retry (`docs/code/ProcessStripeEvent.md`) and user transactions, which the strategy doesn't allow.
 
 ## Tests
 

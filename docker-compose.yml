@@ -51,7 +51,10 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - servicebus
+      servicebus:
+        condition: service_started
+      migrator:
+        condition: service_completed_successfully
 
   # Runs once and exits: applies the EF Core migrations, creating the Payments database on the first run.
   migrator:
