@@ -23,7 +23,7 @@ The parameters keep their default values (`limit = 50`, `cancellationToken = def
 
 ## Enums as strings
 
-`Program.cs` adds `JsonStringEnumConverter` to the controllers' JSON options, so `status`, `fromStatus` and `toStatus` come out as `"Paid"` instead of `5`. A number would tie the dashboard to the byte values of `PaymentStatus`, which exist for the database. The converter is global, but no other controller returns an enum. The SignalR hub (task 5.3) has its own JSON options, see `docs/pending.md`.
+`Program.cs` adds `JsonStringEnumConverter` to the controllers' JSON options, so `status`, `fromStatus` and `toStatus` come out as `"Paid"` instead of `5`. A number would tie the dashboard to the byte values of `PaymentStatus`, which exist for the database. The converter is global, but no other controller returns an enum. The SignalR hub has its own JSON options and adds the same converter (`docs/code/PaymentsHub.md`).
 
 ## Returning the Application records
 

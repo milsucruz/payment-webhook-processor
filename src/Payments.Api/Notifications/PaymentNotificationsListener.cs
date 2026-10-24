@@ -1,4 +1,6 @@
 using Azure.Messaging.ServiceBus;
+using Microsoft.AspNetCore.SignalR;
+using Payments.Api.Hubs;
 using Payments.Application.Notifications;
 
 namespace Payments.Api.Notifications;
@@ -9,20 +11,17 @@ public sealed class PaymentNotificationsListener : BackgroundService
     public const string ServiceKey = "payment-notifications";
 
     private readonly ServiceBusProcessor processor;
+    private readonly IHubContext<PaymentsHub> hubContext;
     private readonly ILogger<PaymentNotificationsListener> logger;
 
     public PaymentNotificationsListener(
         [FromKeyedServices(ServiceKey)] ServiceBusProcessor processor,
+        IHubContext<PaymentsHub> hubContext,
         ILogger<PaymentNotificationsListener> logger)
     {
         this.processor = processor;
+        this.hubContext = hubContext;
         this.logger = logger;
-    }
-
-    public override async Task StopAsync(CancellationToken cancellationToken)
-    {
-        await this.processor.StopProcessingAsync(cancellationToken);
-        await base.StopAsync(cancellationToken);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -32,15 +31,26 @@ public sealed class PaymentNotificationsListener : BackgroundService
         await this.processor.StartProcessingAsync(stoppingToken);
     }
 
-    private Task ProcessMessageAsync(ProcessMessageEventArgs args)
+    private async Task ProcessMessageAsync(ProcessMessageEventArgs args)
     {
         PaymentNotification notification = PaymentNotificationJson.Deserialize(args.Message.Body.ToString());
+        if (notification.Payment is not null)
+        {
+            await this.hubContext.Clients.All.SendAsync(PaymentsHubMethods.PaymentUpdated, notification.Payment, args.CancellationToken);
+        }
+
+        EventProcessedMessage eventProcessed = new(
+            notification.EventId,
+            notification.EventType,
+            notification.PaymentIntentId,
+            notification.Outcome);
+        await this.hubContext.Clients.All.SendAsync(PaymentsHubMethods.EventProcessed, eventProcessed, args.CancellationToken);
+
         this.logger.LogInformation(
             "Received notification for event {EventId} on payment {PaymentIntentId}: {Outcome}",
             notification.EventId,
             notification.PaymentIntentId,
             notification.Outcome);
-        return Task.CompletedTask;
     }
 
     private Task ProcessErrorAsync(ProcessErrorEventArgs args)
