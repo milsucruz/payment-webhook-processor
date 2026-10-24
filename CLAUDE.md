@@ -122,6 +122,7 @@ cp .env.example .env            # uma vez; preencha MSSQL_SA_PASSWORD, STRIPE_WE
 stripe listen --print-secret    # valor de STRIPE_WEBHOOK_SECRET; depois de mudar o .env, docker compose up -d api
 docker compose up -d            # SQL Server, emulador do Service Bus, migrator (aplica as migrations e sai), API e worker
 curl http://localhost:5300/health   # emulador pronto quando responde 200; antes disso o webhook responde 500
+start http://localhost:8080/        # painel (código em web/, servido pela API; depois de mudar web/, docker compose up -d --build api)
 dotnet build
 dotnet user-secrets set ConnectionStrings:Payments "Server=localhost,1433;Database=Payments;User Id=sa;Password=<MSSQL_SA_PASSWORD>;TrustServerCertificate=True" --project src/Payments.Worker   # só para dotnet run do worker fora do compose; pare o worker do compose antes
 dotnet test --filter "FullyQualifiedName!~Payments.IntegrationTests"   # testes de unidade, sem Docker

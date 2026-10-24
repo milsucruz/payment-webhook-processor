@@ -165,9 +165,11 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseForwardedHeaders();
+app.UseDefaultFiles();
 app.UseRouting();
 app.UseRateLimiter();
 
+app.MapStaticAssets();
 app.MapControllers();
 app.MapHub<PaymentsHub>(PaymentsHub.Route);
 

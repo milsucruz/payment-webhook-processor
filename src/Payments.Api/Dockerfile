@@ -15,6 +15,7 @@ COPY src/Payments.Api/Payments.Api.csproj src/Payments.Api/
 RUN dotnet restore src/Payments.Api/Payments.Api.csproj
 
 COPY src/ src/
+COPY web/ web/
 RUN dotnet publish src/Payments.Api/Payments.Api.csproj -c Release --no-restore -o /app
 
 # The runtime image has no SDK and no source code.
