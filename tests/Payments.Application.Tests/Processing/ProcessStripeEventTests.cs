@@ -424,7 +424,7 @@ public class ProcessStripeEventTests
     }
 
     [Fact]
-    public async Task Duplicate_event_publishes_a_notification_without_the_payment()
+    public async Task Duplicate_event_publishes_a_notification_with_the_committed_payment()
     {
         string payload = ReadFixture("payment_intent.succeeded.json");
         PaymentEvent paymentEvent = StripeEventParser.Parse(payload);
@@ -436,7 +436,47 @@ public class ProcessStripeEventTests
         PaymentNotification notification = this.notificationPublisher.Published[1];
         Assert.Equal(paymentEvent.EventId, notification.EventId);
         Assert.Equal(ProcessStripeEventOutcome.Duplicate, notification.Outcome);
-        Assert.Null(notification.Payment);
+        Assert.Equal(
+            new PaymentSummary(paymentEvent.PaymentIntentId, PaymentStatus.Paid, paymentEvent.Amount, 0, paymentEvent.Currency, processedAt),
+            notification.Payment);
+    }
+
+    [Fact]
+    public async Task Duplicate_event_notifies_the_committed_state_not_the_state_its_decision_would_set()
+    {
+        string requiresAction = ReadFixture("payment_intent.requires_action.json");
+        PaymentEvent requiresActionEvent = StripeEventParser.Parse(requiresAction);
+        this.Seed(requiresActionEvent, PaymentStatus.Processing, amountRefunded: 0);
+        this.store.InboxEvents.Add(new InboxEvent
+        {
+            EventId = requiresActionEvent.EventId,
+            EventType = requiresActionEvent.EventType,
+            PaymentIntentId = requiresActionEvent.PaymentIntentId,
+            StripeCreatedAt = requiresActionEvent.StripeCreatedAt,
+            ReceivedAt = earlierAt,
+            Outcome = TransitionOutcome.Applied,
+            Payload = requiresAction,
+        });
+
+        await this.Process(requiresAction);
+
+        PaymentNotification notification = Assert.Single(this.notificationPublisher.Published);
+        Assert.Equal(ProcessStripeEventOutcome.Duplicate, notification.Outcome);
+        Assert.Equal(PaymentStatus.Processing, notification.Payment?.Status);
+    }
+
+    [Fact]
+    public async Task Cancellation_while_publishing_the_notification_propagates_without_a_warning()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        using CancellationTokenSource cancellation = new();
+        this.notificationPublisher.OnPublish = cancellation.Cancel;
+        this.notificationPublisher.FailWith = new OperationCanceledException(cancellation.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => this.Process(payload, cancellation.Token));
+
+        Assert.Equal(1, this.store.Commits);
+        Assert.DoesNotContain(this.logger.Entries, entry => entry.Level == LogLevel.Warning);
     }
 
     [Fact]

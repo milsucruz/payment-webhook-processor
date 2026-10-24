@@ -59,11 +59,18 @@ public class PaymentNotificationsTests : IAsyncLifetime
             new ServiceBusProcessorOptions { ReceiveMode = ServiceBusReceiveMode.ReceiveAndDelete, MaxConcurrentCalls = 1 });
         using PaymentNotificationsListener listener = new(processor, loggerFactory.CreateLogger<PaymentNotificationsListener>());
         await listener.StartAsync(CancellationToken.None);
-        await this.fixture.StartWorkerAsync(loggerProvider: null, faultInjection: false, overrideServices: null, CancellationToken.None);
+        string received;
+        try
+        {
+            await this.fixture.StartWorkerAsync(loggerProvider: null, faultInjection: false, overrideServices: null, CancellationToken.None);
 
-        await this.fixture.SendAsync(EventId, Event(EventId, "pi_notification_received"), CancellationToken.None);
-        string received = await WaitForLogAsync(logs, $"Received notification for event {EventId}");
-        await listener.StopAsync(CancellationToken.None);
+            await this.fixture.SendAsync(EventId, Event(EventId, "pi_notification_received"), CancellationToken.None);
+            received = await WaitForLogAsync(logs, $"Received notification for event {EventId}");
+        }
+        finally
+        {
+            await listener.StopAsync(CancellationToken.None);
+        }
 
         Assert.Contains("pi_notification_received", received, StringComparison.Ordinal);
         Assert.Contains("Applied", received, StringComparison.Ordinal);

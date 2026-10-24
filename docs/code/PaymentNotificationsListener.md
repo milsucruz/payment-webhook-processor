@@ -6,7 +6,9 @@ The adapter between the `payment-notifications` queue and the API (task 5.2, sec
 
 ## Processor options
 
-Set in `Program.cs`, which builds the processor from the API's singleton `ServiceBusClient` and `ServiceBus:NotificationsQueueName`. The listener receives the ready processor, so it doesn't depend on Infrastructure options (layering rule in `CLAUDE.md`, checked by `ControllerDependencyTests` for controllers and `BackgroundService` types). The same pattern as `PaymentEventsWorker`.
+Set in `Program.cs`, which registers a `ServiceBusClient` and the processor as keyed singletons (`PaymentNotificationsListener.ServiceKey`), and the listener receives the processor with `[FromKeyedServices]`. It doesn't depend on Infrastructure options (layering rule in `CLAUDE.md`, checked by `ControllerDependencyTests` for controllers and `BackgroundService` types), the same pattern as `PaymentEventsWorker`. The container created both singletons, so it disposes them on shutdown; the first version built the processor inside the hosted service's factory, where nothing disposed it (code review).
+
+**Its own client.** The API's main `ServiceBusClient` has short retry options for the webhook (2 s per try, section 4: fail fast and let Stripe resend). A processor waits for messages for at most one try timeout, so on that client an idle listener asked for a message every 2 s, about 30 operations a minute while a replica is up, and a Service Bus outage spent the 2 retries at once and filled the log with errors. The listener's client uses the SDK's defaults (60 s per try), so an idle receive waits up to a minute (code review).
 
 | Option | Value | Why |
 | --- | --- | --- |

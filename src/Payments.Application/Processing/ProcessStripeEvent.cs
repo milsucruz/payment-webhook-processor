@@ -129,7 +129,7 @@ public class ProcessStripeEvent
         {
             await this.notificationPublisher.PublishAsync(notification, cancellationToken);
         }
-        catch (Exception exception)
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
             this.logger.LogWarning(
                 exception,
@@ -179,6 +179,7 @@ public class ProcessStripeEvent
     {
         Payment? existingPayment = await this.paymentStore.FindPaymentAsync(paymentEvent.PaymentIntentId, cancellationToken);
         PaymentStatus? fromStatus = existingPayment?.Status;
+        PaymentSummary? committedPayment = existingPayment is null ? null : Summarize(existingPayment);
         TransitionOutcome outcome = existingPayment is null
             ? TransitionOutcome.Applied
             : existingPayment.Apply(paymentEvent.RequestedStatus, paymentEvent.AmountRefunded, paymentEvent.EventId, processedAt);
@@ -204,7 +205,7 @@ public class ProcessStripeEvent
         if (inboxResult == PaymentStoreWriteResult.DuplicateEvent)
         {
             this.logger.LogInformation("Event {EventId} was already processed", paymentEvent.EventId);
-            return new AttemptResult(new ProcessStripeEventResult(ProcessStripeEventOutcome.Duplicate));
+            return new AttemptResult(new ProcessStripeEventResult(ProcessStripeEventOutcome.Duplicate), committedPayment);
         }
 
         if (inboxResult == PaymentStoreWriteResult.ConcurrencyConflict)
@@ -247,10 +248,11 @@ public class ProcessStripeEvent
             paymentEvent.EventId,
             paymentEvent.PaymentIntentId,
             outcome);
-        return new AttemptResult(
-            new ProcessStripeEventResult(ToProcessOutcome(outcome)),
-            new PaymentSummary(payment.PaymentIntentId, payment.Status, payment.Amount, payment.AmountRefunded, payment.Currency, payment.UpdatedAt));
+        return new AttemptResult(new ProcessStripeEventResult(ToProcessOutcome(outcome)), Summarize(payment));
     }
+
+    private static PaymentSummary Summarize(Payment payment) =>
+        new(payment.PaymentIntentId, payment.Status, payment.Amount, payment.AmountRefunded, payment.Currency, payment.UpdatedAt);
 
     private static string? HistoryReason(TransitionOutcome outcome)
     {

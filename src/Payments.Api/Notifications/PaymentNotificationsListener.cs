@@ -6,10 +6,14 @@ namespace Payments.Api.Notifications;
 // Details: docs/code/PaymentNotificationsListener.md
 public sealed class PaymentNotificationsListener : BackgroundService
 {
+    public const string ServiceKey = "payment-notifications";
+
     private readonly ServiceBusProcessor processor;
     private readonly ILogger<PaymentNotificationsListener> logger;
 
-    public PaymentNotificationsListener(ServiceBusProcessor processor, ILogger<PaymentNotificationsListener> logger)
+    public PaymentNotificationsListener(
+        [FromKeyedServices(ServiceKey)] ServiceBusProcessor processor,
+        ILogger<PaymentNotificationsListener> logger)
     {
         this.processor = processor;
         this.logger = logger;

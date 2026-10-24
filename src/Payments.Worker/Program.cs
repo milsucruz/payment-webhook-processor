@@ -17,6 +17,8 @@ host.Run();
 
 public partial class Program
 {
+    private const string NotificationsClientKey = "payment-notifications";
+
     public static void AddPaymentEventsWorker(IServiceCollection services, IConfiguration configuration)
     {
         services.AddOptions<ServiceBusOptions>()
@@ -27,8 +29,24 @@ public partial class Program
             .ValidateOnStart();
         services.AddSingleton(serviceProvider =>
             ServiceBusClientFactory.Create(serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value));
+        services.AddKeyedSingleton(NotificationsClientKey, (serviceProvider, _) =>
+        {
+            ServiceBusClientOptions clientOptions = new()
+            {
+                RetryOptions = new ServiceBusRetryOptions
+                {
+                    Mode = ServiceBusRetryMode.Exponential,
+                    MaxRetries = 2,
+                    Delay = TimeSpan.FromMilliseconds(500),
+                    MaxDelay = TimeSpan.FromSeconds(2),
+                    TryTimeout = TimeSpan.FromSeconds(2),
+                },
+            };
+
+            return ServiceBusClientFactory.Create(serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value, clientOptions);
+        });
         services.AddSingleton<IPaymentNotificationPublisher>(serviceProvider => new ServiceBusPaymentNotificationPublisher(
-            serviceProvider.GetRequiredService<ServiceBusClient>(),
+            serviceProvider.GetRequiredKeyedService<ServiceBusClient>(NotificationsClientKey),
             serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value.NotificationsQueueName));
         services.AddSingleton(serviceProvider =>
         {

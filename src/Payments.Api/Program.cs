@@ -62,7 +62,9 @@ builder.Services.AddSingleton<IDeadLetterQueue>(serviceProvider => new ServiceBu
     serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value.EventsQueueName,
     serviceProvider.GetRequiredService<IEventPublisher>()));
 
-builder.Services.AddHostedService(serviceProvider =>
+builder.Services.AddKeyedSingleton(PaymentNotificationsListener.ServiceKey, (serviceProvider, _) =>
+    ServiceBusClientFactory.Create(serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value));
+builder.Services.AddKeyedSingleton(PaymentNotificationsListener.ServiceKey, (serviceProvider, key) =>
 {
     ServiceBusProcessorOptions processorOptions = new()
     {
@@ -70,12 +72,11 @@ builder.Services.AddHostedService(serviceProvider =>
         MaxConcurrentCalls = 1,
     };
 
-    return new PaymentNotificationsListener(
-        serviceProvider.GetRequiredService<ServiceBusClient>().CreateProcessor(
-            serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value.NotificationsQueueName,
-            processorOptions),
-        serviceProvider.GetRequiredService<ILogger<PaymentNotificationsListener>>());
+    return serviceProvider.GetRequiredKeyedService<ServiceBusClient>(key).CreateProcessor(
+        serviceProvider.GetRequiredService<IOptions<ServiceBusOptions>>().Value.NotificationsQueueName,
+        processorOptions);
 });
+builder.Services.AddHostedService<PaymentNotificationsListener>();
 
 string? paymentsConnectionString = builder.Configuration.GetConnectionString("Payments");
 if (string.IsNullOrWhiteSpace(paymentsConnectionString))

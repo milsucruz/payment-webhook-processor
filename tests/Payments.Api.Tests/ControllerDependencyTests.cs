@@ -24,6 +24,7 @@ public class ControllerDependencyTests
                 .Select(type => $"{adapter.Name} -> {type.FullName}"))
             .ToList();
 
+        Assert.Contains(adapters, adapter => adapter.IsSubclassOf(typeof(ControllerBase)));
         Assert.Contains(typeof(PaymentNotificationsListener), adapters);
         Assert.Empty(forbidden);
     }
