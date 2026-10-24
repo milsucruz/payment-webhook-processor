@@ -8,4 +8,5 @@ public sealed record PaymentNotification(
     string EventType,
     string PaymentIntentId,
     ProcessStripeEventOutcome Outcome,
-    PaymentSummary? Payment);
+    PaymentSummary? Payment,
+    string? TraceId);

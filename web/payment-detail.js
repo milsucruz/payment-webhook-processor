@@ -62,5 +62,6 @@ function timelineItem(entry) {
         el('div', { className: 'muted' },
             el('span', { title: entry.occurredAt }, dateTime(entry.occurredAt)),
             ' · ',
-            el('code', {}, entry.eventId)));
+            el('code', {}, entry.eventId),
+            ...(entry.traceId ? [' · trace ', el('code', { title: 'Search this operation ID in Application Insights' }, entry.traceId)] : [])));
 }

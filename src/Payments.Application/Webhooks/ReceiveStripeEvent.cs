@@ -54,6 +54,7 @@ public class ReceiveStripeEvent
             return ReceiveStripeEventResult.PublishFailed;
         }
 
+        this.logger.LogInformation("Published Stripe event {EventId}", eventId);
         return ReceiveStripeEventResult.Published;
     }
 

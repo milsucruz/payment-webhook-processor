@@ -6,4 +6,5 @@ public sealed record EventProcessedMessage(
     string EventId,
     string EventType,
     string PaymentIntentId,
-    ProcessStripeEventOutcome Outcome);
+    ProcessStripeEventOutcome Outcome,
+    string? TraceId);

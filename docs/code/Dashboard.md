@@ -95,7 +95,7 @@ The history comes in write order (`docs/code/PaymentReader.md`), which is proces
 
 The detail reloads over REST when an `EventProcessed` for its payment arrives, and on reconnect. The message doesn't carry the new history entry, so a reload is the only way to show it; a `Duplicate` writes nothing, so it doesn't reload. A `generation` counter drops an older response that arrives after a newer one.
 
-Section 7 also asks for a link to the trace. The trace ID is always `null` until the worker has tracing, and the link needs the Application Insights address, so it waits for task 5.6 (`docs/pending.md`).
+Since task 5.6 each entry also shows its trace ID, the operation ID to search in Application Insights. Section 7 asks for a link; building one needs the Application Insights resource in the page and a portal URL format that is not documented, so the link is in `docs/pending.md`.
 
 ## Dead-letter screen
 

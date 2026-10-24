@@ -21,6 +21,8 @@ The adapter between the `payment-events` queue and `ProcessStripeEvent` (see `do
 
 `CompleteMessageAsync` only runs after `ExecuteAsync` returns, and `ExecuteAsync` only returns those outcomes after the commit. If the worker dies between the two, the message comes back and the inbox turns it into a `Duplicate`. Since task 5.2 the use case also publishes the notification before returning, so it goes out after the commit and before the completion (see "Notification" in `docs/code/ProcessStripeEvent.md`).
 
+Each delivery runs inside a log scope `EventId = <message ID>` (task 5.6). The message ID is the event ID (the API sets it, section 4), so every log line of the delivery, the use case's and EF Core's included, carries the event ID even when the body can't be parsed. The worker reads only the message's metadata, not the event (layering rule).
+
 ## Permanent errors go straight to the dead-letter
 
 Section 6 sends permanent errors to the dead-letter on the first delivery, with reason and description (task 3.2). Service Bus gives a dead-lettered message two properties, and the worker fills them differently:

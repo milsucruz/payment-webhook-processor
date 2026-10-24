@@ -14,7 +14,7 @@ public sealed class CollectingLogger<T> : ILogger<T>
     public bool IsEnabled(LogLevel logLevel) => true;
 
     public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-        this.Entries.Add(new LogEntry(logLevel, formatter(state, exception)));
+        this.Entries.Add(new LogEntry(logLevel, formatter(state, exception), exception));
 }
 
-public sealed record LogEntry(LogLevel Level, string Message);
+public sealed record LogEntry(LogLevel Level, string Message, Exception? Exception = null);

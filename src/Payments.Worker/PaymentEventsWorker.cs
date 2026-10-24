@@ -9,6 +9,7 @@ public sealed class PaymentEventsWorker : BackgroundService
     private const string InvalidEventReason = "InvalidEvent";
     private const string ImpossibleConflictReason = "ImpossibleConflict";
     private const string LastFailureReasonProperty = "LastFailureReason";
+    private const string EventIdScopeKey = "EventId";
 
     private readonly ServiceBusProcessor processor;
     private readonly IServiceScopeFactory scopeFactory;
@@ -36,6 +37,7 @@ public sealed class PaymentEventsWorker : BackgroundService
 
     private async Task ProcessMessageAsync(ProcessMessageEventArgs args)
     {
+        using IDisposable? logScope = this.logger.BeginScope(new Dictionary<string, object> { [EventIdScopeKey] = args.Message.MessageId });
         await using AsyncServiceScope scope = this.scopeFactory.CreateAsyncScope();
         ProcessStripeEvent processStripeEvent = scope.ServiceProvider.GetRequiredService<ProcessStripeEvent>();
 

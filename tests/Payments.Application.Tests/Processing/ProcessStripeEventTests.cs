@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Payments.Application.Events;
 using Payments.Application.Notifications;
@@ -569,6 +570,92 @@ public class ProcessStripeEventTests
             "evt_seeded",
             earlierAt,
             earlierAt));
+    }
+
+    [Fact]
+    public async Task Applied_event_runs_in_a_transaction_span_whose_trace_id_reaches_the_inbox_and_the_notification()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        PaymentEvent paymentEvent = StripeEventParser.Parse(payload);
+        using ActivitySource testSource = new(nameof(this.Applied_event_runs_in_a_transaction_span_whose_trace_id_reaches_the_inbox_and_the_notification));
+        List<Activity> stopped = [];
+        using ActivityListener listener = new()
+        {
+            ShouldListenTo = source => source.Name == ProcessStripeEvent.ActivitySourceName || source == testSource,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity => { lock (stopped) { stopped.Add(activity); } },
+        };
+        ActivitySource.AddActivityListener(listener);
+        using Activity? parent = testSource.StartActivity("process message");
+        Assert.NotNull(parent);
+        string traceId = parent.TraceId.ToHexString();
+
+        await this.Process(payload);
+
+        Activity transaction;
+        lock (stopped)
+        {
+            transaction = Assert.Single(stopped, activity => activity.Source.Name == ProcessStripeEvent.ActivitySourceName && activity.TraceId == parent.TraceId);
+        }
+
+        Assert.Equal("payment transaction", transaction.DisplayName);
+        Assert.Equal(parent.SpanId, transaction.ParentSpanId);
+        Assert.Equal(paymentEvent.EventId, transaction.GetTagItem("payments.event_id"));
+        Assert.Equal(paymentEvent.PaymentIntentId, transaction.GetTagItem("payments.payment_intent_id"));
+        Assert.Equal(1, transaction.GetTagItem("payments.attempt"));
+        Assert.Equal("Applied", transaction.GetTagItem("payments.outcome"));
+        Assert.Equal(traceId, Assert.Single(this.store.InboxEvents).TraceId);
+        Assert.Equal(traceId, Assert.Single(this.notificationPublisher.Published).TraceId);
+    }
+
+    [Fact]
+    public async Task Injected_fault_shows_up_as_a_failed_transaction_span_before_the_retry()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        this.faultInjector.Exceptions.Enqueue(new TransientTestException());
+        using ActivitySource testSource = new(nameof(this.Injected_fault_shows_up_as_a_failed_transaction_span_before_the_retry));
+        List<Activity> stopped = [];
+        using ActivityListener listener = new()
+        {
+            ShouldListenTo = source => source.Name == ProcessStripeEvent.ActivitySourceName || source == testSource,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity => { lock (stopped) { stopped.Add(activity); } },
+        };
+        ActivitySource.AddActivityListener(listener);
+        using Activity? parent = testSource.StartActivity("process message");
+        Assert.NotNull(parent);
+
+        await this.ProcessThroughDelays(payload, TimeSpan.FromSeconds(1));
+
+        Activity[] attempts;
+        lock (stopped)
+        {
+            attempts = stopped.Where(activity => activity.Source.Name == ProcessStripeEvent.ActivitySourceName && activity.TraceId == parent.TraceId).ToArray();
+        }
+
+        Assert.Equal(2, attempts.Length);
+        Assert.Equal(1, attempts[0].GetTagItem("payments.attempt"));
+        Assert.Equal(ActivityStatusCode.Error, attempts[0].Status);
+        Assert.Equal(2, attempts[1].GetTagItem("payments.attempt"));
+        Assert.Equal("Applied", attempts[1].GetTagItem("payments.outcome"));
+    }
+
+    [Fact]
+    public async Task Transient_retries_are_logged_without_the_exception_and_only_the_final_failure_keeps_it()
+    {
+        string payload = ReadFixture("payment_intent.succeeded.json");
+        for (int attempt = 0; attempt < 4; attempt++)
+        {
+            this.store.CommitExceptions.Enqueue(new TransientTestException());
+        }
+
+        await this.ProcessThroughDelays(payload, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15));
+
+        List<LogEntry> warnings = this.logger.Entries.Where(entry => entry.Level == LogLevel.Warning).ToList();
+        Assert.Equal(4, warnings.Count);
+        Assert.All(warnings.Take(3), entry => Assert.Null(entry.Exception));
+        Assert.All(warnings.Take(3), entry => Assert.Contains(new TransientTestException().Message, entry.Message, StringComparison.Ordinal));
+        Assert.IsType<TransientTestException>(warnings[3].Exception);
     }
 
     private Task<ProcessStripeEventResult> Process(string payload, CancellationToken cancellationToken = default)

@@ -8,7 +8,7 @@ The check behind `GET /health/ready` (architecture section 9: "Connection to Ser
 
 It opens a receiver on `payment-events` with the API's singleton `ServiceBusClient` and peeks one message. A peek reads without locking, so the message stays where it was, its `DeliveryCount` does not change, and an empty queue just returns `null`. Any answer means the namespace is reachable, the identity got a token, and the AMQP connection is open. The integration test checks the "stays where it was" part: after the check, the message is received with `DeliveryCount` 1.
 
-The check does not catch exceptions. `HealthCheckService` already turns a thrown exception into the registration's failure status (`Unhealthy`) and logs it, so a `try`/`catch` here would only repeat that.
+A failed peek returns `Unhealthy` with the exception message as the description (task 5.6). Until then the check let the exception out, and `HealthCheckService` logged each failure as an `Error` with the full stack, every 5 s per replica during an outage, against the 0.2 GB daily cap. It still logs the failure as an `Error`, now one line with the message. A cancellation of the check's own token still propagates.
 
 ## Why a peek
 
@@ -29,7 +29,7 @@ The client's retry options (2 retries, 2 s `TryTimeout`) apply to the peek too, 
 The task 4.7 code review raised two more points, both left as they are:
 
 - **A cached receiver** instead of one per check: attaching a link is not billed and the peek is one operation either way, while a cached receiver needs a singleton lifetime. `ServiceBusDeadLetterQueue.PeekAsync` also opens a receiver per call.
-- **Log volume during an outage:** `HealthCheckService` logs each failed check as an `Error` with the exception, every 5 s per replica. That belongs to the log-level work of task 5.6 (`docs/pending.md`).
+- **Log volume during an outage:** solved in task 5.6 by returning `Unhealthy` with the message instead of throwing (see "What it does").
 
 ## Live and ready
 

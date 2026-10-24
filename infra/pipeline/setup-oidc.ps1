@@ -10,7 +10,8 @@ $PSNativeCommandUseErrorActionPreference = $true
 $allowedRoles = @(
     'Azure Service Bus Data Sender',
     'Azure Service Bus Data Receiver',
-    'Key Vault Secrets User'
+    'Key Vault Secrets User',
+    'Monitoring Metrics Publisher'
 ) | ForEach-Object {
     $id = az role definition list --name $_ --query '[0].name' -o tsv
     if (-not $id) { throw "Role '$_' not found" }

@@ -281,7 +281,7 @@ Version 1 uses ASP.NET Core's own SignalR, hosted in the API with a single repli
 | Message | Direction | Content |
 | --- | --- | --- |
 | `PaymentUpdated` | Server to client | ID, state, amounts, currency and date of the last change |
-| `EventProcessed` | Server to client | Event ID and type, payment ID, outcome (applied, ignored out of order, redundant, duplicate) and trace ID (from task 5.6, when the worker has tracing) |
+| `EventProcessed` | Server to client | Event ID and type, payment ID, outcome (applied, ignored out of order, redundant, duplicate) and trace ID |
 | `QueueStats` | Server to client | Active and dead-lettered messages of `payment-events`, every 5 s while a client is connected |
 
 Enums go out as their names, as in the read API. `QueueStats` counts by peeking, which the API's Data Receiver role allows, and stops at 1000 per count, a limit it sends along so the screen can show "1000+": the exact counts would need the Manage right (Data Owner), which section 8 doesn't give the API.
@@ -324,15 +324,17 @@ No Azure service is accessed with a password or a key-based connection string. T
 | API | `payment-events` queue | Azure Service Bus Data Sender; Data Receiver to read and reprocess the dead-letter |
 | API | `payment-notifications` queue | Azure Service Bus Data Receiver |
 | API | Key Vault | Key Vault Secrets User |
+| API | Application Insights | Monitoring Metrics Publisher |
 | API | Database | `db_datareader` |
 | Worker | `payment-events` queue | Azure Service Bus Data Receiver |
 | Worker | `payment-notifications` queue | Azure Service Bus Data Sender |
 | Worker | Database | `db_datareader` and `db_datawriter` |
+| Worker | Application Insights | Monitoring Metrics Publisher |
 | Migration job | Database | `db_ddladmin`, plus read and write |
 | Pipeline (GitHub Actions) | Resource group | Contributor, via OIDC federated credential |
-| Pipeline (GitHub Actions) | Resource group | Role Based Access Control Administrator, with a condition that only allows assigning Azure Service Bus Data Sender, Azure Service Bus Data Receiver and Key Vault Secrets User |
+| Pipeline (GitHub Actions) | Resource group | Role Based Access Control Administrator, with a condition that only allows assigning Azure Service Bus Data Sender, Azure Service Bus Data Receiver, Key Vault Secrets User and Monitoring Metrics Publisher |
 
-Roles are assigned at the scope of each queue, not the whole namespace. The API cannot write to the database, which limits the damage if the public endpoint is compromised.
+Roles are assigned at the scope of each queue, not the whole namespace. Monitoring Metrics Publisher only allows sending telemetry, and it lets Application Insights turn off ingestion with its key. The API cannot write to the database, which limits the damage if the public endpoint is compromised.
 
 The pipeline needs the second role because the Bicep creates the role assignments, and Contributor has no `Microsoft.Authorization/roleAssignments/write`. The condition keeps it from granting itself or anyone else Owner.
 
@@ -378,7 +380,11 @@ A single trace covers the event's entire path, and five custom metrics show what
 | Logs | Structured Serilog, with trace ID and event ID on every line | JSON console and Application Insights |
 | Metrics | `System.Diagnostics.Metrics` exported via OpenTelemetry | Application Insights |
 
-The API and the worker use the Azure Monitor exporter for OpenTelemetry. The Service Bus SDK propagates trace context in the message properties, so the worker's span shows up linked to the API's span. The SDK's tracing is still experimental in .NET: it needs the `Azure.Experimental.EnableActivitySource` switch on and `AddSource("Azure.*")` in the OpenTelemetry setup.
+The API and the worker use the Azure Monitor exporter for OpenTelemetry, set up once in `Payments.Infrastructure/Telemetry`. The Service Bus SDK propagates trace context in the message properties, so the worker's processing span is a child of the message the API sent, and the whole path is one trace. The SDK's tracing is still experimental in .NET: it needs the `Azure.Experimental.EnableActivitySource` switch on before the first Service Bus client is created, and `AddSource("Azure.*")` in the OpenTelemetry setup.
+
+Logs go through .NET's `ILogger` to two providers: Serilog writes compact JSON to the console, with the trace ID and span ID on every line, and the OpenTelemetry provider sends the same entries to Application Insights. The levels in `Logging:LogLevel` apply to both. The worker opens a log scope with the message ID, which is the event ID, around each delivery; the API logs the event ID when it publishes.
+
+The exporter authenticates with the container's managed identity (Monitoring Metrics Publisher on Application Insights), and Application Insights has local authentication turned off, so the connection string only identifies the resource and is not a secret (section 8). Without `APPLICATIONINSIGHTS_CONNECTION_STRING`, as in compose, spans and trace IDs are still created but nothing is exported.
 
 ### Spans of an event
 
@@ -406,7 +412,7 @@ The API and the worker use the Azure Monitor exporter for OpenTelemetry. The Ser
 
 ### Volume control
 
-The first 5 GB of ingestion per month are free. The workspace has a 0.2 GB daily cap as protection, and health checks are excluded from traces.
+The first 5 GB of ingestion per month are free. The workspace has a 0.2 GB daily cap as protection, and health checks are excluded from traces. Service Bus receive and peek spans that start a trace (the processors' polling, the readiness check and `QueueStats`, every few seconds) are dropped before export; the ones inside a request or a message's processing, such as completing the message, are kept. EF Core logs from `Warning` up, and the worker logs the expected failure of a duplicate's inbox insert at `Debug`.
 
 ### Health checks
 

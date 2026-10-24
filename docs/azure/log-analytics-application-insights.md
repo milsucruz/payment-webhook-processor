@@ -50,16 +50,18 @@ Exemplo: um webhook chega, a API abre o span `POST /webhooks/stripe`, o worker c
 
 ## 7. O que pode dar errado e quanto custa errar
 
-- **Teto estourado cedo:** um log ruidoso (ver os itens de ruído do EF Core em `docs/pending.md`) enche os 0,2 GB e o resto do dia fica sem telemetria.
+- **Teto estourado cedo:** um log ruidoso enche os 0,2 GB e o resto do dia fica sem telemetria. A 5.6 tirou as fontes conhecidas: o polling do Service Bus não vira span, os duplicados não geram `Error` do EF e os retries e falhas de health check saem sem stack.
 - **Cobrança:** passa de 5 GB/mês só se o teto ficar quase todo dia no limite (ver conta acima).
-- **Connection string:** contém uma chave de ingestão. Não é um segredo que dá acesso a dados, mas permite enviar telemetria falsa; com `DisableLocalAuth` ligado só identidades com papel enviam. Decidido na 5.6.
+- **Connection string:** contém uma chave de ingestão. Desde a 5.6 o recurso tem `DisableLocalAuth: true`, então a chave sozinha não envia nada: só identidades com o papel Monitoring Metrics Publisher (as do API e do worker) enviam, e a connection string virou só um identificador, passado como variável comum. Se o papel faltar, o exporter não derruba o app, mas a telemetria simplesmente não chega ao portal.
+- **Logo depois do deploy:** a atribuição do Monitoring Metrics Publisher pode levar alguns minutos para valer. Nesse intervalo a ingestão recusa o token, e a telemetria desses minutos pode se perder; o app continua funcionando.
 - **Desfazer:** apagar o workspace apaga os dados e tem uma janela de recuperação de 14 dias; apagar o Application Insights não apaga o workspace.
 
 ## 8. Como conferir
 
 ```bash
 az monitor log-analytics workspace show -g rg-payment-webhooks -n <workspace> --query "{sku:sku.name,retention:retentionInDays,capGb:workspaceCapping.dailyQuotaGb}"
-az monitor app-insights component show -g rg-payment-webhooks --app <appinsights> --query "{kind:kind,workspace:workspaceResourceId}"
+az monitor app-insights component show -g rg-payment-webhooks --app <appinsights> --query "{kind:kind,workspace:workspaceResourceId,localAuthDisabled:disableLocalAuth}"
+az rest --method post --url "https://api.loganalytics.io/v1/workspaces/$(az resource show -g rg-payment-webhooks -n log-payment-webhooks --resource-type Microsoft.OperationalInsights/workspaces --query properties.customerId -o tsv)/query" --resource https://api.loganalytics.io --body "{\"query\": \"union AppRequests, AppDependencies | where OperationId == '<trace ID>' | order by TimeGenerated asc | project TimeGenerated, AppRoleName, Name, Id, ParentId\"}" --query "tables[0].rows" -o tsv   # spans de um trace
 ```
 
 No portal: o workspace → **Usage and estimated costs → Daily cap**.

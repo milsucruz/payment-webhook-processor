@@ -25,7 +25,7 @@ The parameters carry no HTTP: the caller reads the raw body and the `Stripe-Sign
 | 1. Check the signature | `InvalidSignature` | Warning with the verifier's reason |
 | 2. Read the event ID | `InvalidEventId` | Warning |
 | 3. Publish | `PublishFailed` | Warning if the caller cancelled, error otherwise |
-| | `Published` | None |
+| | `Published` | Information with the event ID (task 5.6), which links the webhook request's trace to the event in the logs |
 
 ### Why a result enum and not exceptions
 

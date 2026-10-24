@@ -16,6 +16,7 @@ param sqlServerFqdn string
 param sqlDatabaseName string
 param vaultUri string
 param workspaceName string
+param appInsightsConnectionString string
 param faultInjectionEnabled bool
 
 var paymentsConnectionString = 'Server=tcp:${sqlServerFqdn},1433;Database=${sqlDatabaseName};Authentication=Active Directory Default;Encrypt=True'
@@ -86,6 +87,7 @@ resource api 'Microsoft.App/containerApps@2025-01-01' = {
             { name: 'ServiceBus__FullyQualifiedNamespace', value: serviceBusNamespace }
             { name: 'ConnectionStrings__Payments', value: paymentsConnectionString }
             { name: 'AZURE_CLIENT_ID', value: apiClientId }
+            { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsightsConnectionString }
           ]
           probes: [
             {
@@ -148,6 +150,7 @@ resource worker 'Microsoft.App/containerApps@2025-01-01' = {
             { name: 'ServiceBus__NotificationsQueueName', value: 'payment-notifications' }
             { name: 'ServiceBus__FullyQualifiedNamespace', value: serviceBusNamespace }
             { name: 'AZURE_CLIENT_ID', value: workerClientId }
+            { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsightsConnectionString }
             { name: 'ConnectionStrings__Payments', value: paymentsConnectionString }
             { name: 'FaultInjection__Enabled', value: string(faultInjectionEnabled) }
           ]

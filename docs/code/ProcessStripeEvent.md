@@ -54,8 +54,8 @@ A transient error is a failure that a later attempt can fix: the database is res
 
 | Attempt result | What happens | Log |
 | --- | --- | --- |
-| Transient exception, retries left | `ProcessOnceAsync` disposes the transaction (see "Rollback after a failed attempt"), the use case waits the next delay and starts a new attempt | Warning with the exception, payment, event, delay and retry number |
-| Transient exception after the third retry | Returns `TransientFailure` with a reason naming event and payment, plus the exception message | Warning with the exception |
+| Transient exception, retries left | `ProcessOnceAsync` disposes the transaction (see "Rollback after a failed attempt"), the use case waits the next delay and starts a new attempt | Warning with payment, event, delay, retry number and the exception message, without the stack (task 5.6) |
+| Transient exception after the third retry | Returns `TransientFailure` with a reason naming event and payment, plus the exception message | Warning with the exception and its stack, once per delivery |
 | Any other exception | Not caught: it reaches the worker, the SDK abandons the message (see `docs/code/PaymentEventsWorker.md`) | Error, from `ProcessErrorAsync` |
 
 Choices behind it:
@@ -82,7 +82,7 @@ That happens for real. With the SQL Server container paused in the middle of an 
 Choices behind it:
 
 - **The first exception decides.** Whether to retry is a question about why the attempt failed, not about the cleanup. A rollback that fails on a broken connection loses nothing: SQL Server rolls back an open transaction when the session ends, and the next attempt opens a new transaction.
-- **Logged, not hidden.** A rollback failure on a connection that is still alive would be a real problem, so it leaves a Warning with the exception instead of disappearing.
+- **Logged, not hidden.** A rollback failure on a connection that is still alive would be a real problem, so it leaves a Warning with the exception message instead of disappearing. Since task 5.6 the Warning has no stack: on a broken connection it comes with every failed attempt, and the stack of `SqlInternalTransaction.Dispose` says nothing the message doesn't.
 - **In the use case, not in `PaymentStore`.** The store could swallow errors in its own dispose, but then the rule would live in Infrastructure, hold only for that store, and hide the failure from the use case's log. Here it holds for any `IPaymentStore`. The rule in `CLAUDE.md` keeps `try`/`catch` out of controllers and the worker, not out of use cases.
 - **Only after a failure.** When the attempt returns a result, the transaction is disposed normally. After a commit the dispose does nothing. After `Conflict`, `Duplicate` or `ConcurrencyConflict` it rolls back, and if that throws, the exception reaches the worker and the message is abandoned and delivered again, which is safe: nothing was committed.
 - **The same `DbContext` for the retry.** The task 3.1 item asked whether a broken connection would need a new scope per retry. It doesn't: in the task 3.7 test, the next `BeginTransactionAsync` on the same context opens a new connection and the attempt commits. That holds even when the dispose threw: EF Core's `RelationalTransaction.DisposeAsync` then stops before clearing its state, so `Database.CurrentTransaction` is still set when the retry starts (seen in 1 of 8 runs of a throwaway loop in the task 3.7 session, raised by the code review), and the retry still opened a new transaction and committed. The second test pins that state on every run.
@@ -156,11 +156,18 @@ Choices behind it:
 - **A private `AttemptResult`.** Only the attempt that committed has the payment. The attempt returns it next to the result, so `ProcessStripeEventResult` stays what the worker needs.
 - **The JSON format in Application (`PaymentNotificationJson`).** The worker writes it through Infrastructure and the API reads it in an adapter, which may not reference Infrastructure (layering rule in `CLAUDE.md`). Web defaults (camelCase) and enums as strings, the same as the read API.
 
+## Trace
+
+Each attempt runs in a span named `payment transaction`, from the `Payments.Processing` source (`ActivitySourceName`, registered by `PaymentsTelemetry`), started before the fault injector, so a `demo_fault` failure shows up as a failed attempt (code review), and ended after the transaction is disposed (section 9, span 4). SqlClient creates one span per command, so without it nothing in the trace would show where a transaction starts and ends or how many attempts a delivery took. Tags: `payments.event_id`, `payments.payment_intent_id`, `payments.attempt`, and `payments.outcome` when the attempt returns; an attempt that throws sets the status to `Error`. `ActivitySource` is in the base library (`System.Diagnostics`), so Application gets no package for it.
+
+The trace ID of the current `Activity` goes to `InboxEvent.TraceId` and to the notification's `TraceId`, which the API forwards in `EventProcessed` (section 7). In the worker that is the processing span's trace, the same one that started at the webhook request. With no listener (unit tests, a host without telemetry) there is no `Activity` and both stay `null`.
+
+The retry Warnings carry the exception message and no stack: a 30 s database pause with 4 concurrent calls and 5 deliveries used to write about 80 stacks. Only the final `TransientFailure` keeps the exception.
+
 ## What is not here yet
 
 | Missing | Where |
 | --- | --- |
-| `TraceId` | M5 (5.6). Always `null` until there is an `Activity`. The notification has no trace ID either; `EventProcessed` needs one (section 7), so 5.6 adds it to both (`docs/pending.md`) |
 | Duplicate metric (section 6) | M5 (5.7) |
 
 ## Tests
