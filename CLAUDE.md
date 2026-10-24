@@ -150,7 +150,7 @@ az sql server firewall-rule create -g rg-payment-webhooks -s <servidor> -n devel
 pwsh infra/sql/create-users.ps1 -ResourceGroup rg-payment-webhooks -ServerName <servidor> -SqlCmd <caminho do go-sqlcmd>   # cria os usuários das identidades no banco; precisa do go-sqlcmd (winget install sqlcmd) e de az login como admin Entra
 ```
 
-Atualize esta seção quando um comando mudar. Todos funcionam; `pay` e `refund` precisam da chave secreta do sandbox em que o endpoint da nuvem está registrado (o `account_id` de `stripe config --list`; a chave começa com `sk_test_51` seguido desse ID sem `acct_1`). A chave de outra conta cria pagamentos cujos webhooks não chegam ao sistema.
+Atualize esta seção quando um comando mudar. Todos funcionam; `pay` e `refund` precisam da chave secreta do sandbox em que o endpoint da nuvem está registrado (o `account_id` de `stripe config --list`; confira com `curl -s -u <chave>: https://api.stripe.com/v1/account`, que responde o `id` da conta da chave). A chave de outra conta cria pagamentos cujos webhooks não chegam ao sistema.
 
 - O `stripe listen` exige a lista de eventos desde o CLI 1.53; a lista é a dos eventos assinados (seção 2 da arquitetura).
 - O `trigger` remove `payment_method_types` porque a versão de API da conta (`2026-09-30.endive`) rejeita esse parâmetro, que a fixture padrão do CLI envia.

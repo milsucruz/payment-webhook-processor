@@ -95,7 +95,7 @@ The history comes in write order (`docs/code/PaymentReader.md`), which is proces
 
 The detail reloads over REST when an `EventProcessed` for its payment arrives, and on reconnect. The message doesn't carry the new history entry, so a reload is the only way to show it; a `Duplicate` writes nothing, so it doesn't reload. A `generation` counter drops an older response that arrives after a newer one.
 
-Since task 5.6 each entry also shows its trace ID, the operation ID to search in Application Insights. Section 7 asks for a link; building one needs the Application Insights resource in the page and a portal URL format that is not documented, so the link is in `docs/pending.md`.
+Since task 5.6 each entry also shows its trace ID, the operation ID to search in Application Insights. It is not a link: a portal link needs the Application Insights resource in the page and a portal URL format that Microsoft does not document, so a change on their side would break it silently. The M5 review changed section 7 to ask for the trace ID.
 
 ## Dead-letter screen
 

@@ -19,4 +19,4 @@ The key is the same as `pay` (`TestModeStripeClient`, see `docs/code/PayMode.md`
 
 ## Not verified yet
 
-Task 2.8 had no test-mode secret key, so this mode was not run against Stripe. The partial and full refunds used in the replay check were made with `stripe refunds create` (see `docs/pending.md`).
+Task 2.8 had no test-mode secret key, so the partial and full refunds used in the replay check were made with `stripe refunds create`. The mode was first run against Stripe in the M5 review: 500 and then the rest took a paid payment to `PartiallyRefunded` and then `Refunded` in the cloud.
