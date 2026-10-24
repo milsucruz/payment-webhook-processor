@@ -5,5 +5,6 @@ public sealed record DeadLetter(
     string EventId,
     string? Reason,
     string? Description,
+    string? LastFailureReason,
     int DeliveryCount,
     DateTimeOffset EnqueuedAt);

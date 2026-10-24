@@ -1,2 +1,5 @@
 # Real Stripe payloads: keep their bytes exactly as received, no line-ending conversion.
 tests/fixtures/** -text
+
+# Vendored third-party files: keep the published bytes, so they can be checked against the package hash.
+web/lib/** -text

@@ -10,7 +10,8 @@ Peek reads messages without locking them and without changing `DeliveryCount`, s
 
 - **A new receiver per call.** A receiver remembers where its last peek stopped, so a shared receiver would start the second listing after the end of the first and return nothing. A fresh receiver always starts at the oldest message.
 - **A loop until `maxMessages` or an empty batch.** `PeekMessagesAsync` may return fewer messages than asked even when more exist, so one call is not enough.
-- **No body in the result.** A body can be up to 256 KB; 100 of them would make a 25 MB response for a screen that shows the reason. The `DeadLetter` record carries the sequence number, the event ID (`MessageId`), reason, description, `DeliveryCount` and enqueue time.
+- **No body in the result.** A body can be up to 256 KB; 100 of them would make a 25 MB response for a screen that shows the reason. The `DeadLetter` record carries the sequence number, the event ID (`MessageId`), reason, description, last failure reason, `DeliveryCount` and enqueue time.
+- **`LastFailureReason` from the application properties.** The worker sets it when it abandons after a transient error or a concurrency conflict (task 5.5, `docs/code/PaymentEventsWorker.md`), and Service Bus keeps it when it dead-letters the message after 5 deliveries. A message dead-lettered on its first delivery, or a poison message whose exception left the worker, has none, and the record carries `null`. The property name is a private constant here and in the worker, like the reason codes: the worker can't reference Infrastructure, and the integration tests assert the literal on both sides.
 
 ## `ReprocessAsync`: why it receives a batch
 
@@ -38,7 +39,7 @@ The copy goes through `IEventPublisher` (the API's `ServiceBusEventPublisher`) w
 
 ### Cost and limits
 
-Every reprocess locks the messages ahead of the match and then abandons them. The Service Bus docs say an abandon raises `DeliveryCount`; in the emulator the other messages kept 5. Dead-lettered messages have no max delivery count, so that is harmless either way. With the alert firing at one message, the dead-letter should stay small. Both points are in `docs/pending.md` to check against the real namespace.
+Every reprocess locks the messages ahead of the match and then abandons them. The Service Bus docs say an abandon raises `DeliveryCount`; in the emulator the other messages kept 5, and task 5.5 saw the same in the real namespace: a reprocess of an unknown sequence number, which receives and abandons every message, left both cloud dead-letters at 5 on the next peek. Dead-lettered messages have no max delivery count, so it would be harmless either way. With the alert firing at one message, the dead-letter should stay small; the time of a reprocess with about 100 messages is still in `docs/pending.md`.
 
 An unknown sequence number costs one empty receive, 2 s, before the `404`.
 
@@ -48,6 +49,7 @@ An unknown sequence number costs one empty receive, 2 s, before the `404`.
 
 - Three dead-lettered messages: peek lists all three with reason and description; reprocessing the middle one returns its event ID, the dead-letter keeps the other two, and the main queue has the copy with the same ID, body and content type.
 - An unknown sequence number returns `null`, and a reprocess right after it finds its message at once, which shows the abandon released the locks.
+- A message abandoned with `LastFailureReason` and then dead-lettered is listed with that reason; the three messages dead-lettered directly are listed with `null`.
 
 ## Known gaps, accepted
 

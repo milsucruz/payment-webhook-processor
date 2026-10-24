@@ -36,6 +36,7 @@ public class ServiceBusDeadLetterQueueTests : IAsyncLifetime
         Assert.Equal(["evt_first", "evt_second", "evt_third"], before.Select(deadLetter => deadLetter.EventId));
         Assert.All(before, deadLetter => Assert.Equal("InvalidEvent", deadLetter.Reason));
         Assert.Equal("Description of evt_second", second.Description);
+        Assert.Null(second.LastFailureReason);
         Assert.Equal("evt_second", reprocessed);
         Assert.Equal(["evt_first", "evt_third"], after.Select(deadLetter => deadLetter.EventId));
 
@@ -66,6 +67,28 @@ public class ServiceBusDeadLetterQueueTests : IAsyncLifetime
         Assert.Equal("evt_first", first);
         DeadLetter remaining = Assert.Single(await deadLetterQueue.PeekAsync(100, CancellationToken.None));
         Assert.Equal("evt_second", remaining.EventId);
+    }
+
+    [Fact]
+    public async Task Last_failure_reason_set_on_abandon_is_listed_with_the_dead_letter()
+    {
+        await using ServiceBusClient client = new(this.container.GetConnectionString());
+        await using ServiceBusSender sender = client.CreateSender(QueueName);
+        await sender.SendMessageAsync(new ServiceBusMessage("{\"id\":\"evt_abandoned\"}") { MessageId = "evt_abandoned" });
+        await using ServiceBusReceiver receiver = client.CreateReceiver(QueueName);
+        ServiceBusReceivedMessage first = await receiver.ReceiveMessageAsync(TimeSpan.FromSeconds(10))
+            ?? throw new InvalidOperationException("Message evt_abandoned was not received.");
+        await receiver.AbandonMessageAsync(first, new Dictionary<string, object> { ["LastFailureReason"] = "Database unreachable" });
+        ServiceBusReceivedMessage second = await receiver.ReceiveMessageAsync(TimeSpan.FromSeconds(10))
+            ?? throw new InvalidOperationException("Message evt_abandoned was not received again.");
+        await receiver.DeadLetterMessageAsync(second, "MaxDeliveryCountExceeded", "Test");
+        await using ServiceBusEventPublisher publisher = new(client, QueueName);
+        ServiceBusDeadLetterQueue deadLetterQueue = new(client, QueueName, publisher);
+
+        DeadLetter deadLetter = Assert.Single(await deadLetterQueue.PeekAsync(100, CancellationToken.None));
+
+        Assert.Equal("evt_abandoned", deadLetter.EventId);
+        Assert.Equal("Database unreachable", deadLetter.LastFailureReason);
     }
 
     private static async Task DeadLetterAsync(ServiceBusClient client, string eventId, string body)

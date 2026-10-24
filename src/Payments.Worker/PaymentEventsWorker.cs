@@ -8,6 +8,7 @@ public sealed class PaymentEventsWorker : BackgroundService
 {
     private const string InvalidEventReason = "InvalidEvent";
     private const string ImpossibleConflictReason = "ImpossibleConflict";
+    private const string LastFailureReasonProperty = "LastFailureReason";
 
     private readonly ServiceBusProcessor processor;
     private readonly IServiceScopeFactory scopeFactory;
@@ -56,7 +57,8 @@ public sealed class PaymentEventsWorker : BackgroundService
                 break;
             case ProcessStripeEventOutcome.ConcurrencyConflict:
             case ProcessStripeEventOutcome.TransientFailure:
-                await args.AbandonMessageAsync(args.Message, cancellationToken: args.CancellationToken);
+                Dictionary<string, object> properties = new() { [LastFailureReasonProperty] = $"Delivery {args.Message.DeliveryCount}: {result.Reason}" };
+                await args.AbandonMessageAsync(args.Message, properties, args.CancellationToken);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(args), result.Outcome, "Unexpected processing outcome.");

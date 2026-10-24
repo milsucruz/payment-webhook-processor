@@ -16,8 +16,8 @@ The adapter between the `payment-events` queue and `ProcessStripeEvent` (see `do
 | `Duplicate` | Complete | The event was already processed; nothing was written (section 6) |
 | `InvalidEvent` | Dead-letter, reason `InvalidEvent` | Permanent error: the body is unreadable or the type is unsupported, so every delivery would fail the same way (section 6). See below |
 | `Conflict` | Dead-letter, reason `ImpossibleConflict` | Permanent error: the event contradicts a recorded fact, and no retry changes that (section 6). See below |
-| `ConcurrencyConflict` | Abandon | The use case already retried from the read 3 times (`MaxConcurrencyAttempts`) (task 2.6). Losing that many races in a row is unlikely but not a broken assumption, so the message goes back for a later delivery |
-| `TransientFailure` | Abandon | The use case already made 1 attempt plus 3 retries with 21 s of waits (task 3.1, delays from ADR 0011, `docs/code/ProcessStripeEvent.md`). The database is still unreachable, so the message goes back and Service Bus delivers it again, up to 5 times. Not a permanent error |
+| `ConcurrencyConflict` | Abandon, with `LastFailureReason` (see below) | The use case already retried from the read 3 times (`MaxConcurrencyAttempts`) (task 2.6). Losing that many races in a row is unlikely but not a broken assumption, so the message goes back for a later delivery |
+| `TransientFailure` | Abandon, with `LastFailureReason` (see below) | The use case already made 1 attempt plus 3 retries with 21 s of waits (task 3.1, delays from ADR 0011, `docs/code/ProcessStripeEvent.md`). The database is still unreachable, so the message goes back and Service Bus delivers it again, up to 5 times. Not a permanent error |
 
 `CompleteMessageAsync` only runs after `ExecuteAsync` returns, and `ExecuteAsync` only returns those outcomes after the commit. If the worker dies between the two, the message comes back and the inbox turns it into a `Duplicate`. Since task 5.2 the use case also publishes the notification before returning, so it goes out after the commit and before the completion (see "Notification" in `docs/code/ProcessStripeEvent.md`).
 
@@ -42,6 +42,15 @@ The SDK refuses a reason or description longer than 4096 characters with `Argume
 Dead-lettering keeps the message as it was: same `MessageId` (the `evt_` ID) and same body. That is what the reprocess endpoint of task 3.4 republishes.
 
 The other way to reach the dead-letter is `MaxDeliveryCount`: a message abandoned 5 times (transient failure that never ends, concurrency conflicts, or an exception) is moved by Service Bus with the reason `MaxDeliveryCountExceeded`. Until task 3.2 permanent errors took that path too, costing four useless deliveries and losing the parser message.
+
+## The last failure travels with an abandoned message
+
+Until task 5.5 the abandon carried nothing, so a message that failed 5 deliveries reached the dead-letter with only `MaxDeliveryCountExceeded`, and the dead-letter screen could not tell a database that stayed down from a poison message (found in the review of tasks 3.1 and 3.2). Now the abandon sets the application property `LastFailureReason` to `result.Reason`, the delivery number and the use case's text ("Delivery 5: Event evt_... for payment pi_... failed with a transient error on all 4 attempts: ..."). Each abandon overwrites it, and Service Bus keeps the message's properties when it dead-letters it, so the dead-letter shows the reason of the fifth delivery. `ServiceBusDeadLetterQueue` reads it for the list (`docs/code/ServiceBusDeadLetterQueue.md`).
+
+- **Only the two abandons of a result.** A poison message throws, and the exception leaves the handler without a reason (no `try`/`catch`, section below), so its dead-letter has no `LastFailureReason`. That absence is what tells it apart on the screen.
+- **An application property, not the dead-letter description.** The worker doesn't dead-letter these messages itself; Service Bus does, after the fifth delivery, with its own reason and description. A property set on the abandon is the only way to leave something on the message for that moment.
+- **Not truncated.** The reason is short (fixed text, Stripe IDs and an exception message). If a property ever went over the message size limit, the abandon would throw, the SDK would abandon without the property, and the message would still reach the dead-letter, only without the reason, as before task 5.5.
+- **Prefixed with the delivery number** (`Delivery 3: Event evt_...`), from the message's `DeliveryCount`. A later delivery that throws is abandoned by the SDK without touching the properties, so the value can be older than the last delivery (code review of task 5.5). Without a `try`/`catch` the worker can't overwrite it on that path; with the number, a dead-letter whose last failure says anything other than delivery 5 shows that the later deliveries failed another way.
 
 ## No `try`/`catch`: exceptions go back to the queue
 
@@ -102,7 +111,8 @@ The integration tests in `tests/Payments.IntegrationTests/Worker/` run the real 
 | --- | --- | --- |
 | `PaymentEventsWorkerDeadLetterTests` (task 3.2) | A body that is `not json` | Dead-letter with the same `MessageId` and body, reason `InvalidEvent`, the parser message, `DeliveryCount` 0 (first delivery). Putting `InvalidEvent` back on the abandon path fails it with `MaxDeliveryCountExceeded` (task 3.2 session) |
 | `Duplicate_delivery_writes_one_row_and_rolls_back` (3.5) | The same message delivered twice, one after the other | One inbox row, one history row, the payment's `RowVersion` unchanged by the second delivery, "already processed" logged (error 2627 on `PK_InboxEvents` turned into `DuplicateEvent`), nothing in the dead-letter |
-| `Poison_message_reaches_the_dead_letter_after_5_deliveries` (3.5) | `demo_fault=poison`, fault injection on | `MaxDeliveryCountExceeded`, `DeliveryCount` 5, no payment or inbox row |
+| `Poison_message_reaches_the_dead_letter_after_5_deliveries` (3.5) | `demo_fault=poison`, fault injection on | `MaxDeliveryCountExceeded`, `DeliveryCount` 5, no `LastFailureReason` (5.5), no payment or inbox row |
+| `Abandoned_message_reaches_the_dead_letter_with_the_last_failure_reason` (5.5) | `ConflictingPaymentStore` answers every commit with a concurrency conflict, so each delivery ends in an abandon without the transient waits | `MaxDeliveryCountExceeded`, `DeliveryCount` 5, `LastFailureReason` (literal) starting with `Delivery 5: ` and holding the event ID |
 | `Impossible_conflict_reaches_the_dead_letter_on_the_first_delivery` (3.5) | "canceled", then "paid" for the same payment | Reason `ImpossibleConflict` (literal), the use case's text as description, `DeliveryCount` 0, payment still canceled, only the canceled event in the inbox |
 | `Crash_after_commit_does_not_duplicate_on_redelivery` (3.5) | The store throws once right after a successful commit | The message comes back, the inbox makes it a duplicate, it is completed; one inbox and one history row, nothing in the dead-letter. Completing the message before calling the use case fails it (mutation check in the task 3.5 session, see `docs/code/WorkerFixture.md`) |
 

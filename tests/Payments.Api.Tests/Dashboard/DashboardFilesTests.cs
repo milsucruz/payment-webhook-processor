@@ -45,6 +45,10 @@ public class DashboardFilesTests : IClassFixture<WebApplicationFactory<Program>>
     [InlineData("/format.js", "text/javascript")]
     [InlineData("/payments.js", "text/javascript")]
     [InlineData("/payment-detail.js", "text/javascript")]
+    [InlineData("/live.js", "text/javascript")]
+    [InlineData("/live-feed.js", "text/javascript")]
+    [InlineData("/dead-letters.js", "text/javascript")]
+    [InlineData("/lib/signalr.min.js", "text/javascript")]
     [InlineData("/styles.css", "text/css")]
     public async Task Dashboard_files_are_served_and_revalidated_on_every_load(string path, string mediaType)
     {

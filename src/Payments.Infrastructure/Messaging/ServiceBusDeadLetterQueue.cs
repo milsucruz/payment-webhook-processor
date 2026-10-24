@@ -8,6 +8,7 @@ namespace Payments.Infrastructure.Messaging;
 public sealed class ServiceBusDeadLetterQueue : IDeadLetterQueue
 {
     private const int ReceiveBatchSize = 50;
+    private const string LastFailureReasonProperty = "LastFailureReason";
     private static readonly TimeSpan receiveWaitTime = TimeSpan.FromSeconds(2);
 
     private readonly ServiceBusClient client;
@@ -41,6 +42,7 @@ public sealed class ServiceBusDeadLetterQueue : IDeadLetterQueue
                 message.MessageId,
                 message.DeadLetterReason,
                 message.DeadLetterErrorDescription,
+                message.ApplicationProperties.TryGetValue(LastFailureReasonProperty, out object? lastFailureReason) ? lastFailureReason as string : null,
                 message.DeliveryCount,
                 message.EnqueuedTime)));
         }

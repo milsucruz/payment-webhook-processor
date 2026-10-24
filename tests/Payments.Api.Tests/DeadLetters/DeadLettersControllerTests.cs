@@ -23,7 +23,7 @@ public class DeadLettersControllerTests : IClassFixture<WebApplicationFactory<Pr
     public async Task List_returns_the_dead_letters_without_the_admin_key()
     {
         InMemoryDeadLetterQueue queue = new();
-        DeadLetter deadLetter = new(7, "evt_1", "InvalidEvent", "The event body is not valid JSON.", 1, DateTimeOffset.UnixEpoch);
+        DeadLetter deadLetter = new(7, "evt_1", "MaxDeliveryCountExceeded", "Message could not be consumed after 5 delivery attempts.", "Event evt_1 failed with a transient error on all 4 attempts: timeout", 5, DateTimeOffset.UnixEpoch);
         queue.DeadLetters.Add(deadLetter);
         HttpClient client = this.CreateClient(queue);
 
@@ -39,7 +39,7 @@ public class DeadLettersControllerTests : IClassFixture<WebApplicationFactory<Pr
     public async Task Reprocess_with_the_admin_key_returns_202_and_reprocesses_the_message()
     {
         InMemoryDeadLetterQueue queue = new();
-        queue.DeadLetters.Add(new DeadLetter(7, "evt_1", "InvalidEvent", null, 1, DateTimeOffset.UnixEpoch));
+        queue.DeadLetters.Add(new DeadLetter(7, "evt_1", "InvalidEvent", null, null, 1, DateTimeOffset.UnixEpoch));
         HttpClient client = this.CreateClient(queue);
 
         HttpResponseMessage response = await client.SendAsync(ReprocessRequest(7, AdminKey));
@@ -66,7 +66,7 @@ public class DeadLettersControllerTests : IClassFixture<WebApplicationFactory<Pr
     public async Task Reprocess_without_the_right_admin_key_returns_401_and_reprocesses_nothing(string? key)
     {
         InMemoryDeadLetterQueue queue = new();
-        queue.DeadLetters.Add(new DeadLetter(7, "evt_1", "InvalidEvent", null, 1, DateTimeOffset.UnixEpoch));
+        queue.DeadLetters.Add(new DeadLetter(7, "evt_1", "InvalidEvent", null, null, 1, DateTimeOffset.UnixEpoch));
         HttpClient client = this.CreateClient(queue);
 
         HttpResponseMessage response = await client.SendAsync(ReprocessRequest(7, key));
