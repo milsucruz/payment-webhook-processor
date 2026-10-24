@@ -312,7 +312,7 @@ The cost of this change is that the API stops scaling to zero: in the service's 
 | --- | --- |
 | Live | Feed of incoming events, with outcome and duplicate and out-of-order counters |
 | Payments | Paginated table with state, amount and last update |
-| Payment detail | Timeline with applied and ignored events, and a link to the trace |
+| Payment detail | Timeline with applied and ignored events, and the trace ID of each one, to search in Application Insights |
 | Dead-letter | Stuck messages, reason and reprocess button |
 
 ## 8. Security and identity
@@ -364,7 +364,7 @@ Container Apps references the Key Vault secrets through the managed identity. Ro
 
 ### Dashboard
 
-The dashboard is public and read-only, because all the data is test data. Actions that change anything require the `X-Admin-Key` header. Entra ID login would be the natural next step and is listed as an evolution.
+The dashboard is public and read-only, because all the data is test data. Actions that change anything require the `X-Admin-Key` header. Entra ID login would be the natural next step and is listed as an evolution. Being public has a cost risk that the M5 review accepted for a demo: anyone can call the read endpoints often enough to keep the free database from pausing and spend its monthly vCore-seconds. An open hub connection keeps the API replica up (section 7), so task 5.9 makes the dashboard close its connection while the tab is hidden.
 
 ### Secretless pipeline
 
@@ -416,7 +416,7 @@ Both are Azure Monitor metric alerts (`infra/alerts.bicep`) that send an email t
 - **Dead-letter above zero:** the Service Bus `DeadletteredMessages` metric, filtered to `payment-events`, with a maximum above 0. While anything stays in the dead-letter the alert stays fired and sends no new email, so the dead-letter has to be emptied (reprocessed or purged with `infra/servicebus/purge-dead-letters.ps1`) for the next dead-lettered message to alert again.
 - **Webhook failures:** the API container app's `Requests` platform metric, filtered to the `5xx` status category, with a total above 5. The platform metric is counted by the ingress, so it also sees the `502` and `503` of an API that doesn't start, when the app itself sends no telemetry. It covers every route of the API; only the webhook answers `5xx` by design, but an unhandled error in a read would count too. A log alert on the webhook's requests would be exact, but it costs about US$ 1.50 a month per rule, against about US$ 0.10 for a metric alert.
 
-**Emails on the Free Trial subscription.** The project runs on an Azure Free Trial subscription (`quotaId` `FreeTrial_2014-09-01`, spending limit on), kept on purpose so that nothing can bill past the credit. In task 5.7 the alerts fired and the alert history recorded "Action group executed" for each fire and resolve, but no alert email arrived; the action group's welcome email did. The action group's test notification answers "Free subscription not supported", and no Microsoft document found says whether the trial also holds back real alert emails. So on this subscription an alert is visible in **Monitor → Alerts** and in its history, not in the inbox. Upgrading to pay as you go would lift the spending limit, which the project doesn't accept; another channel (a Logic App or a function sending the email) would add a resource for a demo need (`docs/pending.md`).
+**Emails on the Free Trial subscription.** The project runs on an Azure Free Trial subscription (`quotaId` `FreeTrial_2014-09-01`, spending limit on), kept on purpose so that nothing can bill past the credit. In task 5.7 the alerts fired and the alert history recorded "Action group executed" for each fire and resolve, but no alert email arrived; the action group's welcome email did. The action group's test notification answers "Free subscription not supported", and no Microsoft document found says whether the trial also holds back real alert emails. So on this subscription an alert is visible in **Monitor → Alerts** and in its history, not in the inbox. Upgrading to pay as you go would lift the spending limit, which the project doesn't accept; another channel (a Logic App or a function sending the email) would add a resource for a demo need. The M5 review accepted this: the done criterion of task 5.7 is the alert firing and running the action group.
 
 ### Volume control
 
