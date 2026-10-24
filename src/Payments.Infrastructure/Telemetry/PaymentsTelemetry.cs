@@ -41,7 +41,7 @@ public static class PaymentsTelemetry
                     .AddSource(ProcessStripeEvent.ActivitySourceName, "Azure.*")
                     .AddHttpClientInstrumentation()
                     .AddSqlClientInstrumentation()
-                    .AddProcessor(new ServiceBusPollingFilter());
+                    .AddProcessor(new TraceNoiseFilter());
                 if (!string.IsNullOrWhiteSpace(connectionString))
                 {
                     tracing.AddAzureMonitorTraceExporter(options => ConfigureExporter(options, connectionString));

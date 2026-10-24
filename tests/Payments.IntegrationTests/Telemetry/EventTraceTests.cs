@@ -47,8 +47,10 @@ public class EventTraceTests : IAsyncLifetime
         using HttpRequestMessage request = new(HttpMethod.Post, "/webhooks/stripe") { Content = new StringContent(body, Encoding.UTF8, "application/json") };
         request.Headers.Add("Stripe-Signature", StripeSignatureHelper.Header(body, WebhookSecret, DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
 
+        using HttpResponseMessage ready = await client.GetAsync("/health/ready");
         using HttpResponseMessage response = await client.SendAsync(request);
 
+        Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Activity webhook = await this.WaitForSpanAsync(span => span.Kind == ActivityKind.Server && Equals(span.GetTagItem("http.route"), "webhooks/stripe"));
         ActivityTraceId traceId = webhook.TraceId;
@@ -65,7 +67,7 @@ public class EventTraceTests : IAsyncLifetime
         Assert.Contains(trace, span => span.Kind == ActivityKind.Client && span.ParentSpanId == transaction.SpanId && span.Source.Name.Contains("SqlClient", StringComparison.Ordinal));
         Assert.True(webhook.StartTimeUtc <= eventSent.StartTimeUtc);
         Assert.True(eventProcessed.StartTimeUtc < notificationConsumed.StartTimeUtc);
-        Assert.DoesNotContain(this.Snapshot(), span => span.Source.Name == ReceiverSource && span.ParentSpanId == default);
+        Assert.All(this.Snapshot().Where(span => span.Source.Name == ReceiverSource), span => Assert.Equal("ServiceBusReceiver.Complete", span.DisplayName));
         await using Payments.Infrastructure.Persistence.PaymentsDbContext dbContext = this.fixture.CreateDbContext();
         Assert.Equal(traceId.ToHexString(), dbContext.InboxEvents.Single(inboxEvent => inboxEvent.EventId == EventId).TraceId);
     }
@@ -127,7 +129,9 @@ public class EventTraceTests : IAsyncLifetime
             builder.UseSetting("ConnectionStrings:Payments", this.fixture.PaymentsConnectionString);
             builder.UseSetting("Admin:ApiKey", "test-admin-key");
             builder.ConfigureTestServices(services =>
-                services.ConfigureOpenTelemetryTracerProvider(tracing => tracing.AddInMemoryExporter(new SynchronizedList(this.spans))));
+                services.ConfigureOpenTelemetryTracerProvider(tracing => tracing
+                    .SetSampler(new AlwaysOnSampler())
+                    .AddInMemoryExporter(new SynchronizedList(this.spans))));
         });
 
     private sealed class SynchronizedList : ICollection<Activity>

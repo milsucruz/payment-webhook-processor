@@ -148,12 +148,21 @@ public class ProcessStripeEvent
 
     private async Task<AttemptResult> ProcessOnceAsync(PaymentEvent paymentEvent, string payload, int attempt, CancellationToken cancellationToken)
     {
-        await this.faultInjector.InjectAsync(paymentEvent, attempt, cancellationToken);
-        DateTimeOffset processedAt = this.timeProvider.GetUtcNow();
         using Activity? activity = activitySource.StartActivity(TransactionActivityName);
         activity?.SetTag("payments.event_id", paymentEvent.EventId);
         activity?.SetTag("payments.payment_intent_id", paymentEvent.PaymentIntentId);
         activity?.SetTag("payments.attempt", attempt);
+        try
+        {
+            await this.faultInjector.InjectAsync(paymentEvent, attempt, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, exception.Message);
+            throw;
+        }
+
+        DateTimeOffset processedAt = this.timeProvider.GetUtcNow();
         IAsyncDisposable transaction = await this.paymentStore.BeginTransactionAsync(cancellationToken);
         AttemptResult result;
         try
