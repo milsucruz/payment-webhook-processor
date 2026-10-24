@@ -2,6 +2,7 @@ const { HubConnectionBuilder, LogLevel } = window.signalR;
 
 const firstRetryDelays = [0, 2000, 10000];
 const steadyRetryDelay = 30000;
+const hiddenGraceDelay = 60000;
 
 const connection = new HubConnectionBuilder()
     .withUrl('/hubs/payments')
@@ -11,6 +12,10 @@ const connection = new HubConnectionBuilder()
 
 const reconnectedHandlers = new Set();
 const statusElement = document.getElementById('connection-status');
+let run = 0;
+let paused = false;
+let stopping = Promise.resolve();
+let pauseTimer = null;
 
 export function onHub(method, handler, signal) {
     connection.on(method, handler);
@@ -25,20 +30,60 @@ export function onReconnected(handler, signal) {
 export function startConnection() {
     connection.onreconnecting(() => setStatus('reconnecting', 'Reconnecting…'));
     connection.onreconnected(() => connected(true));
-    connection.onclose(() => start(true));
+    connection.onclose(() => {
+        if (!paused) {
+            start(true);
+        }
+    });
+    document.addEventListener('visibilitychange', visibilityChanged);
     start(false);
+    visibilityChanged();
 }
 
 async function start(afterGap) {
+    const current = ++run;
     for (let attempt = 0; ; attempt++) {
         setStatus('connecting', 'Connecting…');
         try {
             await connection.start();
-            connected(afterGap || attempt > 0);
+            if (current === run) {
+                connected(afterGap || attempt > 0);
+            }
             return;
         } catch {
             await new Promise(resolve => setTimeout(resolve, retryDelay(attempt)));
+            if (current !== run) {
+                return;
+            }
         }
+    }
+}
+
+function visibilityChanged() {
+    if (document.visibilityState === 'hidden') {
+        pauseTimer ??= setTimeout(pause, hiddenGraceDelay);
+        return;
+    }
+    clearTimeout(pauseTimer);
+    pauseTimer = null;
+    if (paused) {
+        resume();
+    }
+}
+
+function pause() {
+    pauseTimer = null;
+    paused = true;
+    run++;
+    setStatus('paused', 'Paused');
+    stopping = connection.stop();
+}
+
+async function resume() {
+    paused = false;
+    await stopping;
+    if (!paused) {
+        start(true);
     }
 }
 
