@@ -53,5 +53,5 @@ public sealed class PaymentsMetrics
     }
 
     private void RecordDuration(ProcessStripeEventOutcome outcome, TimeSpan sinceReceived) =>
-        this.processingDuration.Record(sinceReceived.TotalSeconds, new KeyValuePair<string, object?>(OutcomeTag, outcome.ToString()));
+        this.processingDuration.Record(Math.Max(0, sinceReceived.TotalSeconds), new KeyValuePair<string, object?>(OutcomeTag, outcome.ToString()));
 }

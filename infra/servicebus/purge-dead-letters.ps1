@@ -7,6 +7,10 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 
 $namespace = az servicebus namespace list -g $ResourceGroup --query '[0].name' -o tsv
+if (-not $namespace) {
+    throw "No Service Bus namespace in $ResourceGroup."
+}
+
 $token = az account get-access-token --resource https://servicebus.azure.net --query accessToken -o tsv
 $headers = @{ Authorization = "Bearer $token" }
 $url = "https://$namespace.servicebus.windows.net/$QueueName/`$DeadLetterQueue/messages/head?timeout=5"

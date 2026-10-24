@@ -29,14 +29,23 @@ Each metric is counted where the fact it describes becomes true:
 
 Section 9 asks "how long from receipt to commit". `PaymentEventsWorker` passes the message's `EnqueuedTime` to `ExecuteAsync` as `receivedAt`, which the broker sets milliseconds after the API accepted the webhook, and the use case records `now - receivedAt` on the `TimeProvider` after the commit. Measuring only inside `ExecuteAsync` would hide the time the event waited in the queue, the transient retry delays and earlier deliveries, which is what grows when the database is paused. `Duplicate` records nothing: its transaction rolls back, so there is no commit to measure. A reprocessed dead-letter is a new message with a new enqueue time, so its duration starts at the reprocess.
 
+The enqueue time comes from the broker's clock and `now` from the container's, so on a fast event a few milliseconds of skew could make the difference negative; the duration is floored at zero, so a negative value never pulls the exported minimum and sum below zero.
+
 The unit is seconds (`s`), the OpenTelemetry convention for durations. The Azure Monitor exporter sends a histogram as sum, count, minimum and maximum per minute, without buckets.
 
 ## `IMeterFactory`, not a static meter
 
-The meter comes from `IMeterFactory`, registered by the host (`AddMetrics`, which `Host.CreateApplicationBuilder` and `WebApplication.CreateBuilder` call; the worker's `AddPaymentEventsWorker` calls it too, for the tests that build a host without the defaults). A static `Meter`, like the static `ActivitySource` in `ProcessStripeEvent`, would be shared by every test in the process, and a test running in parallel would see the other tests' measurements. With the factory each test creates its own meter (`tests/Payments.Application.Tests/Telemetry/TestMeterFactory.cs`) and `MetricCollector<T>` listens only to it. The class is not a port: like `ILogger` and `ActivitySource`, `System.Diagnostics.Metrics` is part of .NET and needs no implementation in Infrastructure.
+The meter comes from `IMeterFactory`, which `Host.CreateApplicationBuilder` and `WebApplication.CreateBuilder` register by themselves, even with `DisableDefaults` (the worker fixture's host). A static `Meter`, like the static `ActivitySource` in `ProcessStripeEvent`, would be shared by every test in the process, and a test running in parallel would see the other tests' measurements. With the factory each test creates its own meter (`tests/Payments.Application.Tests/Telemetry/TestMeterFactory.cs`) and `MetricCollector<T>` listens only to it. The class is not a port: like `ILogger` and `ActivitySource`, `System.Diagnostics.Metrics` is part of .NET and needs no implementation in Infrastructure.
 
 ## Tests
 
 - `ReceiveStripeEventTests`: a published event is counted once with its type; an event without a type counts as `unknown`; an invalid signature, a body without an event ID and a failed publish count nothing.
 - `ProcessStripeEventTests`: an applied event records 2 s (the test's `receivedAt` is 2 s before the clock) with its outcome and no counter; two transient retries make it 8 s; a duplicate counts once and records no duration; an out-of-order event counts once and records its duration; an impossible conflict and an invalid event record nothing.
 - `PaymentEventsWorkerDeadLetterTests` (integration): an unreadable event on the emulator is counted once as `InvalidEvent`, with the test's `IMeterFactory` replacing the host's.
+
+## Kept after the code review
+
+- **Counted before the completion.** If the completion fails after the commit (lock lost), the redelivery is counted again as `events.duplicate`. That is what the counter means: a repeated delivery that idempotency absorbed, whatever caused it.
+- **The dead-letter alert stays stateful on the Service Bus metric**, instead of alerting on growth of `events.dead_lettered`: the counter misses `MaxDeliveryCountExceeded`, and section 9 asks for "above zero". The price is that the dead-letter has to be emptied for the next email (section 9).
+- **The dead-letter counter stays in the worker**, not in the use case: only after `DeadLetterMessageAsync` returns is the message in the dead-letter, and the reason codes are the worker's. A new permanent outcome already needs a new `case` in the worker for its settlement; the counter sits in that same `case`.
+- **The 5xx alert covers every route of the API.** A metric alert can't filter by path; a log alert on the webhook's requests could, at about 15 times the price (section 9).

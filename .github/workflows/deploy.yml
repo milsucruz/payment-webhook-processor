@@ -69,7 +69,11 @@ jobs:
           echo "::add-mask::$login"
           echo "SQL_ADMIN_LOGIN=$login" >> "$GITHUB_ENV"
           echo "SQL_ADMIN_OBJECT_ID=$(az sql server ad-admin list -g "$RESOURCE_GROUP" -s "$server" --query "[0].sid" -o tsv)" >> "$GITHUB_ENV"
-          email=$(az monitor action-group show -g "$RESOURCE_GROUP" -n "$ACTION_GROUP" --query "emailReceivers[0].emailAddress" -o tsv)
+          email=$(az monitor action-group list -g "$RESOURCE_GROUP" --query "[?name=='$ACTION_GROUP'].emailReceivers[0].emailAddress" -o tsv)
+          if [ -z "$email" ]; then
+            echo "::error::Action group $ACTION_GROUP not found. Deploy the Bicep once by hand with ALERT_EMAIL (CLAUDE.md, Comandos), then rerun."
+            exit 1
+          fi
           echo "::add-mask::$email"
           echo "ALERT_EMAIL=$email" >> "$GITHUB_ENV"
 

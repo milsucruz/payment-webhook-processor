@@ -7,13 +7,15 @@ using Payments.Application.Webhooks;
 
 namespace Payments.Application.Tests.Webhooks;
 
-public class ReceiveStripeEventTests
+public class ReceiveStripeEventTests : IDisposable
 {
     private const string EventJson = """{"id":"evt_1PtTest","object":"event","type":"payment_intent.succeeded"}""";
     private const string Signature = "t=1,v1=test";
 
     private readonly CollectingLogger<ReceiveStripeEvent> logger = new();
     private readonly TestMeterFactory meterFactory = new();
+
+    public void Dispose() => this.meterFactory.Dispose();
 
     [Fact]
     public async Task Valid_signature_and_event_id_publishes_the_original_body_and_returns_published()

@@ -91,7 +91,6 @@ public partial class Program
             services.AddSingleton<IFaultInjector, NoFaultInjector>();
         }
 
-        services.AddMetrics();
         services.AddSingleton<PaymentsMetrics>();
         services.AddScoped<ProcessStripeEvent>();
 

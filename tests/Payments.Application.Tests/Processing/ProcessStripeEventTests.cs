@@ -13,7 +13,7 @@ using Payments.Domain;
 
 namespace Payments.Application.Tests.Processing;
 
-public class ProcessStripeEventTests
+public class ProcessStripeEventTests : IDisposable
 {
     private static readonly string fixturesDirectory = Path.Combine(AppContext.BaseDirectory, "fixtures");
     private static readonly DateTimeOffset earlierAt = new(2026, 10, 17, 9, 0, 0, TimeSpan.Zero);
@@ -34,6 +34,8 @@ public class ProcessStripeEventTests
     {
         this.metrics = new PaymentsMetrics(this.meterFactory);
     }
+
+    public void Dispose() => this.meterFactory.Dispose();
 
     [Fact]
     public async Task Event_for_an_unknown_payment_creates_it_in_the_requested_state()
@@ -696,6 +698,17 @@ public class ProcessStripeEventTests
         await this.ProcessThroughDelays(ReadFixture("payment_intent.succeeded.json"), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5));
 
         Assert.Equal(8, Assert.Single(duration.GetMeasurementSnapshot()).Value);
+    }
+
+    [Fact]
+    public async Task Enqueue_time_ahead_of_the_worker_clock_records_zero_not_a_negative_duration()
+    {
+        using MetricCollector<double> duration = this.Collect<double>("event.processing.duration");
+        ProcessStripeEvent processStripeEvent = new(this.store, this.transientErrorDetector, this.faultInjector, this.notificationPublisher, this.timeProvider, this.metrics, this.logger);
+
+        await processStripeEvent.ExecuteAsync(ReadFixture("payment_intent.succeeded.json"), processedAt.AddSeconds(1), CancellationToken.None);
+
+        Assert.Equal(0, Assert.Single(duration.GetMeasurementSnapshot()).Value);
     }
 
     [Fact]
