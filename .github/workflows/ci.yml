@@ -40,6 +40,7 @@ jobs:
           API_IMAGE_TAG: ci
           WORKER_IMAGE_TAG: ci
           MIGRATOR_IMAGE_TAG: ci
+          ALERT_EMAIL: ci@example.com
         run: az bicep build-params --file infra/main.bicepparam --stdout > /dev/null
 
       # SQL Server and the Service Bus emulator in Docker; a hung container fails the step instead of the 6 h job limit.
