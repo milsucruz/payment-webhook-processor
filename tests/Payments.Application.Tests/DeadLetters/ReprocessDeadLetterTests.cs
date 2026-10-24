@@ -10,7 +10,7 @@ public class ReprocessDeadLetterTests
     public async Task Known_sequence_number_is_reprocessed_and_logged_as_information()
     {
         InMemoryDeadLetterQueue queue = new();
-        queue.DeadLetters.Add(new DeadLetter(7, "evt_1", "InvalidEvent", null, 1, DateTimeOffset.UnixEpoch));
+        queue.DeadLetters.Add(new DeadLetter(7, "evt_1", "InvalidEvent", null, null, 1, DateTimeOffset.UnixEpoch));
         CollectingLogger<ReprocessDeadLetter> logger = new();
         ReprocessDeadLetter reprocessDeadLetter = new(queue, logger);
 
@@ -27,7 +27,7 @@ public class ReprocessDeadLetterTests
     public async Task Unknown_sequence_number_is_not_found_and_logged_as_a_warning()
     {
         InMemoryDeadLetterQueue queue = new();
-        queue.DeadLetters.Add(new DeadLetter(7, "evt_1", "InvalidEvent", null, 1, DateTimeOffset.UnixEpoch));
+        queue.DeadLetters.Add(new DeadLetter(7, "evt_1", "InvalidEvent", null, null, 1, DateTimeOffset.UnixEpoch));
         CollectingLogger<ReprocessDeadLetter> logger = new();
         ReprocessDeadLetter reprocessDeadLetter = new(queue, logger);
 

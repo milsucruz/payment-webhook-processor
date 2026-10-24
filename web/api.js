@@ -7,6 +7,18 @@ export async function getPayment(paymentIntentId) {
     return getJson(`/api/payments/${encodeURIComponent(paymentIntentId)}`);
 }
 
+export async function listDeadLetters() {
+    return getJson('/api/dead-letters');
+}
+
+export async function reprocessDeadLetter(sequenceNumber, adminKey) {
+    const response = await fetch(`/api/dead-letters/${sequenceNumber}/reprocess`, {
+        method: 'POST',
+        headers: { 'X-Admin-Key': adminKey },
+    });
+    return response.status;
+}
+
 async function getJson(url) {
     const response = await fetch(url);
     if (response.status === 404) {

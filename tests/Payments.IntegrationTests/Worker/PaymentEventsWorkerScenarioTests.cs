@@ -62,9 +62,38 @@ public class PaymentEventsWorkerScenarioTests : IAsyncLifetime
         Assert.Equal("evt_poison_succeeded", deadLettered.MessageId);
         Assert.Equal("MaxDeliveryCountExceeded", deadLettered.DeadLetterReason);
         Assert.Equal(5, deadLettered.DeliveryCount);
+        Assert.False(deadLettered.ApplicationProperties.ContainsKey("LastFailureReason"));
         await using PaymentsDbContext dbContext = this.fixture.CreateDbContext();
         Assert.False(await dbContext.Payments.AnyAsync(payment => payment.PaymentIntentId == PaymentIntentId));
         Assert.False(await dbContext.InboxEvents.AnyAsync(inbox => inbox.PaymentIntentId == PaymentIntentId));
+    }
+
+    [Fact]
+    public async Task Abandoned_message_reaches_the_dead_letter_with_the_last_failure_reason()
+    {
+        const string PaymentIntentId = "pi_always_conflicting";
+        await this.fixture.StartWorkerAsync(
+            this.logs,
+            faultInjection: false,
+            overrideServices: services =>
+            {
+                services.AddScoped<PaymentStore>();
+                services.AddScoped<IPaymentStore>(provider => new ConflictingPaymentStore(provider.GetRequiredService<PaymentStore>()));
+            },
+            CancellationToken.None);
+
+        await this.fixture.SendAsync(
+            "evt_always_conflicting",
+            Event("evt_always_conflicting", "payment_intent.succeeded", "succeeded", PaymentIntentId),
+            CancellationToken.None);
+        ServiceBusReceivedMessage deadLettered = await this.fixture.PeekDeadLetterAsync(CancellationToken.None);
+        await this.fixture.StopWorkersAsync(CancellationToken.None);
+
+        Assert.Equal("evt_always_conflicting", deadLettered.MessageId);
+        Assert.Equal("MaxDeliveryCountExceeded", deadLettered.DeadLetterReason);
+        Assert.Equal(5, deadLettered.DeliveryCount);
+        string lastFailureReason = Assert.IsType<string>(deadLettered.ApplicationProperties["LastFailureReason"]);
+        Assert.Contains("evt_always_conflicting", lastFailureReason, StringComparison.Ordinal);
     }
 
     [Fact]

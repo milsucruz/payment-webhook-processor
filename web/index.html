@@ -5,14 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Payments dashboard</title>
   <link rel="stylesheet" href="styles.css">
+  <script src="lib/signalr.min.js" defer></script>
   <script type="module" src="app.js"></script>
 </head>
 <body>
   <header class="top-bar">
     <span class="brand">Payment webhooks</span>
     <nav>
+      <a href="#/live">Live</a>
       <a href="#/payments">Payments</a>
+      <a href="#/dead-letters">Dead-letter</a>
     </nav>
+    <span id="connection-status" class="connection connecting">Connecting…</span>
   </header>
   <main id="view"></main>
 </body>
