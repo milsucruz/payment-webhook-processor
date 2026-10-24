@@ -24,12 +24,6 @@ public sealed class PaymentNotificationsListener : BackgroundService
         this.logger = logger;
     }
 
-    public override async Task StopAsync(CancellationToken cancellationToken)
-    {
-        await this.processor.StopProcessingAsync(cancellationToken);
-        await base.StopAsync(cancellationToken);
-    }
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         this.processor.ProcessMessageAsync += this.ProcessMessageAsync;

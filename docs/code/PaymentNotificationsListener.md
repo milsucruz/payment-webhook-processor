@@ -15,6 +15,12 @@ Set in `Program.cs`, which registers a `ServiceBusClient` and the processor as k
 | `ReceiveMode` | `ReceiveAndDelete` | A notification is disposable (section 3): it expires in 60 s and the dashboard reloads over REST on reconnect. Peek-lock would add a lock, a settlement call per message and up to 5 deliveries of a notification that fails, and a failing one would end in the queue's dead-letter, where messages never expire. With `ReceiveAndDelete` a notification that fails is gone, which is the behavior section 4 already accepts for a lost notification |
 | `MaxConcurrentCalls` | 1 | One operator and one API replica (section 7). The handler only sends to the hub, which is in memory. One call keeps the notifications in the order they were received |
 
+## Shutdown: the container stops the processor
+
+The listener doesn't override `StopAsync`. The processor is a singleton in the container, and its `DisposeAsync` stops processing (`CloseAsync`) and closes its link, so disposing the host is enough. Between the host's stop and that disposal the processor can still receive a notification and send it to a hub with no clients, which loses it, the same as any lost notification (section 3).
+
+Task 5.2 had a `StopAsync` that called `processor.StopProcessingAsync`, and it broke the API tests in CI (task 5.3). With `WebApplicationFactory` and minimal hosting, the app's own `app.Run()` starts the host on another thread. When a test disposes the factory, the factory calls `StopAsync`, `app.Run()` wakes up on `ApplicationStopping` and disposes the container, and the processor got disposed in the middle of `StopProcessingAsync`: `ObjectDisposedException` on its internal `SemaphoreSlim`. On Linux, where `sb://localhost` refuses at once, it happened in almost every run. On `main` it only showed up as xUnit "Test Class Cleanup Failure", which doesn't fail the run. The task 5.3 hub tests dispose their factory inside the test, so it became a failed test. In production the stop and the disposal run one after the other, so the race only existed in the test harness, but the override had no other use.
+
 ## No `try`/`catch`
 
 As in the worker, the handler catches nothing. An unreadable body makes `PaymentNotificationJson.Deserialize` throw, and the SDK calls `ProcessErrorAsync`, which logs it as an error. In `ReceiveAndDelete` the message is already gone, so a broken notification is logged once and never comes back.
