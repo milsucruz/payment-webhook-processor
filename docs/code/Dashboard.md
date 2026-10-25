@@ -2,13 +2,13 @@
 
 `web/` (the code), served by `src/Payments.Api` (`Payments.Api.csproj` links the files into `wwwroot`; `Program.cs` maps them).
 
-The single-page dashboard of section 7. Task 5.4 built the skeleton, the payments screen and the payment detail with the timeline; task 5.5 added the hub connection, the live feed, live updates on the other screens, the reload on reconnect and the dead-letter screen. This document holds the detail that the code leaves out. Keep it in sync when the dashboard changes.
+The single-page dashboard of section 7. Task 5.4 built the skeleton, the payments screen and the payment detail with the timeline; task 5.5 added the hub connection, the live feed, live updates on the other screens, the reload on reconnect and the dead-letter screen; task 5.9 closes the connection while the tab is hidden. This document holds the detail that the code leaves out. Keep it in sync when the dashboard changes.
 
 | File | Role |
 | --- | --- |
 | `index.html` | Page shell: top bar with the navigation and the connection status, and the `#view` element each screen renders into |
 | `app.js` | Hash router: `#/live` (default), `#/payments`, `#/payments/{paymentIntentId}` and `#/dead-letters`; starts the feed and the connection |
-| `live.js` | The one hub connection: start and reconnect, status, `onHub` and `onReconnected` subscriptions |
+| `live.js` | The one hub connection: start and reconnect, pause while the tab is hidden, status, `onHub` and `onReconnected` subscriptions |
 | `live-feed.js` | Live screen, and the feed and counters it shows, collected for the whole page |
 | `api.js` | `fetch` calls to the read API (`docs/code/PaymentsController.md`) and the dead-letter API (`docs/code/DeadLettersController.md`); `404` on a read becomes `null`, any other failure throws |
 | `format.js` | Status labels and the status badge, amounts in minor units to currency text, dates in the browser's locale |
@@ -55,11 +55,18 @@ One connection for the whole page, to `/hubs/payments`, started once by `app.js`
 
 **Reconnect that never gives up.** `withAutomaticReconnect()` with no arguments tries after 0, 2, 10 and 30 s and then closes for good, leaving a dashboard that looks fine and never updates. The policy here waits 0, 2 and 10 s and then every 30 s, with no end. The first `start()` is not covered by automatic reconnect at all (a cold API in the cloud refuses it), so `start` loops with the same delays. `onclose`, which with this policy only fires when the server closes the connection without asking for a reconnect, starts over too.
 
-**Status.** The top bar shows "Connecting…", "Live" or "Reconnecting…", so a dashboard that stopped updating says so.
+**Status.** The top bar shows "Connecting…", "Live", "Reconnecting…" or "Paused" (below), so a dashboard that stopped updating says so.
 
 **Reload on reconnect.** Hub messages are not the source of truth (section 7): whatever was sent while the connection was down is lost. So every connection that follows a gap (a reconnect, a restart after `onclose`, or a first start that needed more than one attempt) calls the `onReconnected` handlers, and each screen redoes its REST load. A first start that worked at once doesn't, because the screen's load just ran. Restarting the API in compose with the page open (task 5.5) showed two reconnects about 15 s apart, each with its reload: the old container, still shutting down gracefully, took the first one, and the new container the second.
 
 **What a reconnect can't recover.** The live feed has no REST source: there is no endpoint for recent events, and adding one would be one more read of the free database for each reconnect. A reconnect puts a line in the feed instead ("Reconnected: events processed while disconnected are not shown here.").
+
+**Pause while the tab is hidden (task 5.9).** An open connection keeps the API replica up, and the replica only scales to zero about 5 minutes after it closes (task 5.8, section 7). So a tab forgotten in the background would hold a 0.25 vCPU replica, and keep the API peeking `payment-events` every 5 s, for as long as it stays open. `live.js` listens to `visibilitychange`: 60 s after the tab is hidden it stops the connection and shows "Paused"; when the tab is shown again it starts the connection as after a gap, so every screen redoes its REST load and the feed gets its "Reconnected" line. Whatever happened while paused is then on screen, from the source of truth.
+
+- **`visibilitychange`, not `blur`/`focus`.** `blur` fires when another window takes the focus while the dashboard is still on screen, for example a terminal next to it during a demo. `visibilitychange` fires only when the page stops being visible: another tab, a minimized window. `pagehide` only fires when the page is unloaded.
+- **60 s of grace.** Closing at once would make every quick look at another tab cost a reconnect, a REST reload (a read of the free database, which may wake it) and a "Reconnected" line. A hidden tab that comes back within 60 s keeps its connection and loses nothing. The cost is one more minute of replica, next to the 5 minutes of cooldown. Chrome only throttles timers of hidden tabs hard after 5 minutes hidden, so the 60 s timer fires on time.
+- **A page opened hidden** (a link opened in a background tab) schedules the pause too: `startConnection` runs the visibility handler once after the first start.
+- **The pause can land at any point of a connection's life**, and a counter (`run`, the `generation` idea of the screens) keeps it simple. Every `start` takes a number and every pause bumps it; a `start` loop that wakes up from its retry delay with an old number stops. Without it, a tab shown again while an old loop slept would run two loops: the second `connection.start()` fails with "not in the 'Disconnected' state" and, since the loop never gives up, would retry every 30 s for as long as the page lives. A pause during the client's own automatic reconnect cancels it (`stop()` ends the reconnect and fires `onclose`), and `onclose` doesn't start over while paused. A pause during `connection.start()` makes it reject, and the loop stops on the old number. Showing the tab waits for the `stop()` in flight before starting, since `start()` refuses a connection still stopping.
 
 ## Live screen
 
@@ -124,3 +131,8 @@ The screens themselves have no automated tests. Task 5.4 checked them in a brows
 - **Dead-letter.** A `demo_fault=poison` payment appeared on the open screen without a click, as two `MaxDeliveryCountExceeded` rows with 5 deliveries and no last failure. Reprocess with no key said "Enter the admin key to reprocess.", with a wrong key "Wrong admin key.", and with the key from `.env` "Event ... is back in the queue." and the row left the list.
 - **Reconnect.** After restarting the API with the page open, the status was back at "Live" and the feed had the two reconnect lines described above. Later, during a few idle minutes with the browser window in the background, the connection dropped once with nothing in the API log and came back by itself: the payments screen had reloaded its first page. Chrome throttles timers in background tabs, which can delay the client's keep-alive past the server's 30 s timeout; that cause is a guess, not verified.
 - No errors from the dashboard in the console.
+
+Task 5.9 checked the pause against compose in two ways:
+
+- **Real hidden tab.** A Node script (scratchpad, not versioned) started Edge headless with a temporary profile and the DevTools protocol, opened the payments screen in one tab and activated another tab with `Target.activateTarget`, which makes the dashboard `hidden` exactly as a user switching tabs does. The WebSocket closed 60.04 s after the switch and the status read "Paused"; activating the dashboard again opened a `negotiate`, a new WebSocket and a `GET /api/payments` within 0.1 s, back at "Live" with 50 rows; no console errors.
+- **Edge cases**, with `document.visibilityState` overridden in the page and `visibilitychange` dispatched by hand. Hidden for 5 s and shown: still "Live" 71 s later, with no reload. API stopped, tab hidden while "Reconnecting…": "Paused" 60 s later, and with the API started again no `negotiate` for 57 s (the reconnect would have tried twice), then shown: "Live" and the first page reloaded. While paused, the API container had no established connection on port 8080.
