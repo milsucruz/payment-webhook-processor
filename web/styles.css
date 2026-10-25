@@ -132,7 +132,8 @@ button {
 }
 
 .connection.connecting,
-.connection.reconnecting {
+.connection.reconnecting,
+.connection.paused {
     color: var(--ignored);
 }
 
