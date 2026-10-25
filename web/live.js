@@ -76,13 +76,13 @@ function pause() {
     paused = true;
     run++;
     setStatus('paused', 'Paused');
-    stopping = connection.stop();
+    stopping = connection.stop().catch(() => {});
 }
 
 async function resume() {
-    paused = false;
     await stopping;
-    if (!paused) {
+    if (paused && document.visibilityState === 'visible') {
+        paused = false;
         start(true);
     }
 }
