@@ -4,7 +4,8 @@ import { onHub, onReconnected } from './live.js';
 import { el } from './dom.js';
 
 export function renderPaymentDetail(view, paymentIntentId, signal) {
-    const content = el('div');
+    const badge = el('span');
+    const content = el('div', {}, el('p', { className: 'muted' }, 'Loading…'));
     let generation = 0;
 
     async function load() {
@@ -14,7 +15,7 @@ export function renderPaymentDetail(view, paymentIntentId, signal) {
             payment = await getPayment(paymentIntentId);
         } catch (error) {
             if (current === generation) {
-                content.replaceChildren(el('p', { className: 'error' }, `Could not load the payment: ${error.message}`));
+                content.replaceChildren(el('p', { className: 'banner error' }, `Could not load the payment: ${error.message}`));
             }
             return;
         }
@@ -22,19 +23,20 @@ export function renderPaymentDetail(view, paymentIntentId, signal) {
             return;
         }
         if (payment === null) {
-            content.replaceChildren(el('p', { className: 'error' }, 'Payment not found.'));
+            content.replaceChildren(el('p', { className: 'banner error' }, 'Payment not found.'));
             return;
         }
 
+        badge.replaceChildren(statusBadge(payment.status));
         content.replaceChildren(
-            el('dl', { className: 'summary' },
-                el('dt', {}, 'Status'), el('dd', {}, statusBadge(payment.status)),
-                el('dt', {}, 'Amount'), el('dd', {}, money(payment.amount, payment.currency)),
-                el('dt', {}, 'Refunded'), el('dd', {}, money(payment.amountRefunded, payment.currency)),
-                el('dt', {}, 'Created'), el('dd', { title: payment.createdAt }, dateTime(payment.createdAt)),
-                el('dt', {}, 'Last update'), el('dd', { title: payment.updatedAt }, dateTime(payment.updatedAt))),
-            el('h2', {}, 'Timeline'),
-            el('ol', { className: 'timeline' }, ...payment.history.map(timelineItem)));
+            el('dl', { className: 'metrics' },
+                fact('Amount', money(payment.amount, payment.currency)),
+                fact('Refunded', money(payment.amountRefunded, payment.currency)),
+                fact('Created', dateTime(payment.createdAt), payment.createdAt),
+                fact('Last update', dateTime(payment.updatedAt), payment.updatedAt)),
+            el('section', { className: 'card' },
+                el('h2', { className: 'card-title' }, `Timeline (${payment.history.length} ${payment.history.length === 1 ? 'event' : 'events'})`),
+                el('ol', { className: 'timeline' }, ...payment.history.map(timelineItem))));
     }
 
     onHub('EventProcessed', event => {
@@ -44,8 +46,20 @@ export function renderPaymentDetail(view, paymentIntentId, signal) {
     }, signal);
     onReconnected(load, signal);
 
-    view.append(el('p', {}, el('a', { href: '#/payments' }, '← Payments')), el('h1', {}, paymentIntentId), content);
+    view.append(
+        el('p', { className: 'back' }, el('a', { href: '#/payments' }, '← Payments')),
+        el('header', { className: 'page-header' },
+            el('div', {},
+                el('div', { className: 'title-row' }, el('h1', { className: 'payment-id' }, paymentIntentId), badge),
+                el('p', { className: 'muted' }, 'Every event received for this payment, in processing order'))),
+        content);
     load();
+}
+
+function fact(label, value, title) {
+    return el('div', { className: 'metric' },
+        el('dt', { className: 'metric-label' }, label),
+        el('dd', { className: 'metric-value small', title: title ?? '' }, value));
 }
 
 function timelineItem(entry) {

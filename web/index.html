@@ -9,15 +9,29 @@
   <script type="module" src="app.js"></script>
 </head>
 <body>
-  <header class="top-bar">
-    <span class="brand">Payment webhooks</span>
-    <nav>
-      <a href="#/live">Live</a>
-      <a href="#/payments">Payments</a>
-      <a href="#/dead-letters">Dead-letter</a>
-    </nav>
-    <span id="connection-status" class="connection connecting">Connecting…</span>
-  </header>
-  <main id="view"></main>
+  <div class="shell">
+    <aside class="sidebar">
+      <span class="brand">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+        Payment webhooks
+      </span>
+      <nav>
+        <a href="#/live">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          Live
+        </a>
+        <a href="#/payments">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+          Payments
+        </a>
+        <a href="#/dead-letters">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"/></svg>
+          Dead-letter
+        </a>
+      </nav>
+      <span id="connection-status" class="connection connecting">Connecting…</span>
+    </aside>
+    <main id="view"></main>
+  </div>
 </body>
 </html>
