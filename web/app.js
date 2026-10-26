@@ -13,6 +13,7 @@ function route() {
     const detail = path.match(/^\/payments\/([^/]+)$/);
     const paymentIntentId = detail ? decodeSegment(detail[1]) : null;
 
+    markCurrentLink(path);
     pageController?.abort();
     pageController = new AbortController();
     const page = el('div');
@@ -28,6 +29,17 @@ function route() {
     } else {
         page.append(el('p', { className: 'error' }, 'Page not found.'));
     }
+}
+
+function markCurrentLink(path) {
+    document.querySelectorAll('nav a').forEach(link => {
+        const section = link.getAttribute('href').replace(/^#/, '');
+        if (path === section || path.startsWith(`${section}/`)) {
+            link.setAttribute('aria-current', 'page');
+        } else {
+            link.removeAttribute('aria-current');
+        }
+    });
 }
 
 function decodeSegment(segment) {

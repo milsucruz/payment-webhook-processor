@@ -1,54 +1,53 @@
 import { listPayments } from './api.js';
 import { dateTime, money, statusBadge } from './format.js';
 import { onHub, onReconnected } from './live.js';
-import { el } from './dom.js';
+import { PageSize, pager } from './pager.js';
+import { el, pageHeader } from './dom.js';
 
 export function renderPayments(view, signal) {
     const rows = el('tbody');
-    const loadMore = el('button', { type: 'button', hidden: true }, 'Load more');
-    const message = el('p');
+    const message = el('p', { className: 'card-message' });
+    const retry = el('button', { type: 'button', hidden: true }, 'Retry');
+    const goToFirst = el('button', { type: 'button', className: 'link-button' }, 'Go to page 1');
+    const notice = el('p', { className: 'notice', hidden: true }, 'Payments were updated on page 1. ', goToFirst);
+    const footer = el('div', { className: 'card-footer' });
     const shown = new Map();
-    let nextCursor = null;
+    const cursors = [null];
+    let current = 1;
     let generation = 0;
 
-    async function loadPage() {
-        const current = generation;
-        loadMore.disabled = true;
-        message.textContent = '';
+    async function loadPage(page) {
+        const loading = ++generation;
+        current = page;
+        retry.hidden = true;
+        notice.hidden = true;
+        message.className = 'card-message muted';
+        message.textContent = 'Loading…';
         try {
-            const page = await listPayments(nextCursor);
-            if (current !== generation) {
+            const result = await listPayments(cursors[page - 1], PageSize);
+            if (loading !== generation) {
                 return;
             }
-            page.items.forEach(payment => show(payment, false));
-            nextCursor = page.nextCursor;
-            loadMore.textContent = 'Load more';
-            loadMore.hidden = nextCursor === null;
-            message.className = '';
-            if (rows.childElementCount === 0) {
-                message.textContent = 'No payments yet.';
+            if (cursors[page] !== result.nextCursor) {
+                cursors.length = page;
+                if (result.nextCursor !== null) {
+                    cursors.push(result.nextCursor);
+                }
             }
+            shown.clear();
+            rows.replaceChildren();
+            result.items.forEach(payment => show(payment, false));
+            message.className = 'card-message muted';
+            message.textContent = rows.childElementCount > 0 ? '' : page === 1 ? 'No payments yet.' : 'No payments on this page anymore.';
+            footer.replaceChildren(pager(current, cursors.length, loadPage));
         } catch (error) {
-            if (current !== generation) {
+            if (loading !== generation) {
                 return;
             }
-            message.className = 'error';
+            message.className = 'card-message error';
             message.textContent = `Could not load the payments: ${error.message}`;
-            loadMore.textContent = 'Retry';
-            loadMore.hidden = false;
-        } finally {
-            if (current === generation) {
-                loadMore.disabled = false;
-            }
+            retry.hidden = false;
         }
-    }
-
-    function reload() {
-        generation++;
-        shown.clear();
-        rows.replaceChildren();
-        nextCursor = null;
-        loadPage();
     }
 
     function show(payment, pushed) {
@@ -63,7 +62,7 @@ export function renderPayments(view, signal) {
         if (pushed) {
             existing?.row.remove();
             rows.prepend(row);
-            if (message.className !== 'error') {
+            if (!message.classList.contains('error')) {
                 message.textContent = '';
             }
         } else if (existing) {
@@ -73,24 +72,36 @@ export function renderPayments(view, signal) {
         }
     }
 
-    loadMore.addEventListener('click', loadPage);
-    onHub('PaymentUpdated', payment => show(payment, true), signal);
-    onReconnected(reload, signal);
+    function pushed(payment) {
+        if (current === 1) {
+            show(payment, true);
+        } else {
+            notice.hidden = false;
+        }
+    }
+
+    retry.addEventListener('click', () => loadPage(current));
+    goToFirst.addEventListener('click', () => loadPage(1));
+    onHub('PaymentUpdated', pushed, signal);
+    onReconnected(() => loadPage(current), signal);
 
     view.append(
-        el('h1', {}, 'Payments'),
-        el('table', {},
-            el('thead', {}, el('tr', {},
-                el('th', {}, 'Payment'),
-                el('th', {}, 'Status'),
-                el('th', { className: 'number' }, 'Amount'),
-                el('th', { className: 'number' }, 'Refunded'),
-                el('th', {}, 'Last update'))),
-            rows),
-        message,
-        loadMore);
+        pageHeader('Payments', `Most recently updated first, ${PageSize} per page`),
+        el('section', { className: 'card' },
+            notice,
+            el('div', { className: 'table-wrap' }, el('table', {},
+                el('thead', {}, el('tr', {},
+                    el('th', {}, 'Payment'),
+                    el('th', {}, 'Status'),
+                    el('th', { className: 'number' }, 'Amount'),
+                    el('th', { className: 'number' }, 'Refunded'),
+                    el('th', {}, 'Last update'))),
+                rows)),
+            message,
+            retry,
+            footer));
 
-    loadPage();
+    loadPage(1);
 }
 
 function paymentRow(payment) {

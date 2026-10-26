@@ -43,6 +43,7 @@ public class DashboardFilesTests : IClassFixture<WebApplicationFactory<Program>>
     [InlineData("/api.js", "text/javascript")]
     [InlineData("/dom.js", "text/javascript")]
     [InlineData("/format.js", "text/javascript")]
+    [InlineData("/pager.js", "text/javascript")]
     [InlineData("/payments.js", "text/javascript")]
     [InlineData("/payment-detail.js", "text/javascript")]
     [InlineData("/live.js", "text/javascript")]

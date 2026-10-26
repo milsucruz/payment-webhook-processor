@@ -11,12 +11,21 @@ const statusLabels = {
     Refunded: 'Refunded',
 };
 
+const statusTones = {
+    Paid: 'success',
+    Failed: 'danger',
+    RequiresAction: 'warning',
+    Processing: 'warning',
+    PartiallyRefunded: 'info',
+    Refunded: 'info',
+};
+
 export function statusLabel(status) {
     return statusLabels[status] ?? status;
 }
 
 export function statusBadge(status) {
-    return el('span', { className: 'status' }, statusLabel(status));
+    return el('span', { className: `status ${statusTones[status] ?? 'neutral'}` }, statusLabel(status));
 }
 
 export function money(amountInMinorUnits, currency) {

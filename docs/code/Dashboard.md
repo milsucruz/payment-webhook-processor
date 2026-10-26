@@ -2,20 +2,21 @@
 
 `web/` (the code), served by `src/Payments.Api` (`Payments.Api.csproj` links the files into `wwwroot`; `Program.cs` maps them).
 
-The single-page dashboard of section 7. Task 5.4 built the skeleton, the payments screen and the payment detail with the timeline; task 5.5 added the hub connection, the live feed, live updates on the other screens, the reload on reconnect and the dead-letter screen; task 5.9 closes the connection while the tab is hidden. This document holds the detail that the code leaves out. Keep it in sync when the dashboard changes.
+The single-page dashboard of section 7. Task 5.4 built the skeleton, the payments screen and the payment detail with the timeline; task 5.5 added the hub connection, the live feed, live updates on the other screens, the reload on reconnect and the dead-letter screen; task 5.9 closes the connection while the tab is hidden; task 6.5 made the layout work on narrow screens. This document holds the detail that the code leaves out. Keep it in sync when the dashboard changes.
 
 | File | Role |
 | --- | --- |
-| `index.html` | Page shell: top bar with the navigation and the connection status, and the `#view` element each screen renders into |
+| `index.html` | Page shell: sidebar with the navigation and the connection status, and the `#view` element each screen renders into |
 | `app.js` | Hash router: `#/live` (default), `#/payments`, `#/payments/{paymentIntentId}` and `#/dead-letters`; starts the feed and the connection |
 | `live.js` | The one hub connection: start and reconnect, pause while the tab is hidden, status, `onHub` and `onReconnected` subscriptions |
 | `live-feed.js` | Live screen, and the feed and counters it shows, collected for the whole page |
 | `api.js` | `fetch` calls to the read API (`docs/code/PaymentsController.md`) and the dead-letter API (`docs/code/DeadLettersController.md`); `404` on a read becomes `null`, any other failure throws |
-| `format.js` | Status labels and the status badge, amounts in minor units to currency text, dates in the browser's locale |
-| `payments.js` | Payments screen: table, "Load more" and pushed payments |
+| `format.js` | Status labels and the status badge with its color, amounts in minor units to currency text, dates in the browser's locale |
+| `payments.js` | Payments screen: table, keyset pages and pushed payments |
+| `pager.js` | The pager every list uses (Previous, page numbers, Next) and the page size, 20 |
 | `payment-detail.js` | Payment detail: summary and timeline |
 | `dead-letters.js` | Dead-letter screen: table, admin key and reprocess |
-| `dom.js` | `el(tag, properties, ...children)`, the one helper that builds elements |
+| `dom.js` | `el(tag, properties, ...children)`, the one helper that builds elements, and `pageHeader`, the title block every screen starts with |
 | `lib/signalr.min.js` | The SignalR JavaScript client, `@microsoft/signalr` 10.0.11 (MIT), unchanged from `dist/browser` of the npm package |
 | `styles.css` | Styles |
 
@@ -72,29 +73,33 @@ One connection for the whole page, to `/hubs/payments`, started once by `app.js`
 
 ## Live screen
 
-The feed shows `EventProcessed` messages, newest first, up to 100: the browser's time, the outcome (Applied, "Ignored: out of order", Redundant, Duplicate), the event type, a link to the payment and the event ID. The counters (events, applied, out of order, redundant, duplicates; section 7 asks for duplicates and out of order) count since the page was opened, leaving out what arrived while the connection was down or paused.
+The feed shows `EventProcessed` messages, newest first, up to 100, 20 per page: the browser's time, the outcome (Applied, Out of order, Redundant, Duplicate), the event type, a link to the payment and the event ID. Page 1 is live. Moving to another page freezes a copy of the list, so the events on screen don't slide down a row each time one arrives, and a notice counts the events that arrived since, with a link back to page 1, which drops the copy. The counters (events, applied, out of order, redundant, duplicates; section 7 asks for duplicates and out of order) count since the page was opened, leaving out what arrived while the connection was down or paused.
 
 The feed and counters live in `live-feed.js` at module level and its handlers are registered once by `startLiveFeed`, before the connection starts, not by the screen. So they keep counting while another screen is shown, and coming back to Live shows them; reloading the page starts them over. The screen re-renders the whole list on each change, which at 100 entries costs nothing noticeable and needs no diffing; even a `flood` (8 payments a second, two or three events each) rebuilds a few thousand small elements a second, which a browser does without effort (code review raised it; kept for the simpler code).
 
-The queue line shows the last `QueueStats` (waiting and dead-lettered messages of `payment-events`), with "1000+" when a count reaches `countLimit` (`docs/code/ServiceBusQueueStatsReader.md`). Until the first message it says "waiting for the first count…": the broadcaster sends every 5 s, so that lasts at most 5 s, and task 5.5 decided not to send the stats on connect (`docs/pending.md`, the 5.3 item, dropped).
+Two metric cards show the last `QueueStats` (waiting and dead-lettered messages of `payment-events`), with "1000+" when a count reaches `countLimit` (`docs/code/ServiceBusQueueStatsReader.md`); the dead-letter card turns red above zero. Until the first message they show "…": the broadcaster sends every 5 s, so that lasts at most 5 s, and task 5.5 decided not to send the stats on connect (`docs/pending.md`, the 5.3 item, dropped).
 
 ## Payments screen
 
-The read API pages by keyset (`nextCursor`), which can only move forward. So the screen has "Load more", which appends the next page, instead of numbered pages. The button hides when `nextCursor` is `null`. The page size is the API default (50).
+**Keyset pages.** The read API pages by keyset (`nextCursor`, section 5: no `OFFSET`), so it can only answer "the page after this cursor". The screen shows one page of 20 at a time (`limit=20`) and keeps the cursor that loads each page it has seen: `cursors[0]` is `null` (page 1), and loading page *n* stores its `nextCursor` as `cursors[n]`. The pager offers Previous, Next and the numbers of the pages known so far; Next is there while the last page loaded had a `nextCursor`. Going back reloads that page from its cursor, so it shows fresh data. Numbered pages with a total ("page 3 of 12") were the alternative the author asked about: they need `OFFSET` and a `COUNT` on every load, which section 5 rules out and which would cost the free database a scan per page, so the numbers are only the pages already visited, and there is no jump to a page not seen yet.
 
-A failed load shows the error and turns the button into "Retry", which repeats the same request (the cursor only advances on success). In the cloud the first load can fail while the free database resumes, and without the button the only way out would be reloading the page (code review).
+When a reload of page *n* returns a `nextCursor` different from the stored one (payments were updated in between), the cursors after it are dropped, since they were computed from an order that no longer holds; the pager then shows pages up to *n* + 1 again. A page that comes back empty (its payments moved to page 1) says so instead of "No payments yet."
 
-**Pushed payments.** `PaymentUpdated` carries the same shape as a list item, so the screen draws it with the same row function. The screen keeps a map from payment ID to its row and `updatedAt`:
+A failed load shows the error and a Retry button that repeats the same request. In the cloud the first load can fail while the free database resumes, and without the button the only way out would be reloading the page (code review).
+
+**Pushed payments.** `PaymentUpdated` carries the same shape as a list item, so the screen draws it with the same row function. On page 1 the screen keeps a map from payment ID to its row and `updatedAt`:
 
 - A pushed payment goes to the top (the list is newest first) and replaces its old row wherever it was.
 - A row from a REST page is appended, or replaces the existing row in place.
-- Either way, a payment older than the row already shown is dropped. That covers both races: a push that arrives before the page that contains the same payment, and a "Load more" page that holds a payment already pushed to the top, which would otherwise show twice.
+- Either way, a payment older than the row already shown is dropped, so a push that arrives before the page that contains the same payment doesn't go back to the old version.
 
-A payment updated while only its older position was in a page not yet loaded moves ahead of the cursor, so it only shows up through its push. If that notification was lost (the worker only logs a failed publish, `docs/code/ProcessStripeEvent.md`), the payment is missing from the list until the next reload or reconnect: hub messages are not the source of truth, and the REST load is (code review, accepted).
+Page 1 can grow past 20 rows with pushes: dropping the last row would lose it, since the stored cursor for page 2 starts after it. On any other page a push doesn't move rows, because the payment belongs on page 1 now and reordering the page being read would be confusing; a notice says page 1 changed, with a link to it.
+
+If a notification was lost (the worker only logs a failed publish, `docs/code/ProcessStripeEvent.md`), the payment shows its old state until the next load of its page or reconnect: hub messages are not the source of truth, and the REST load is (code review, accepted).
 
 The comparison uses `Date.parse`, which keeps milliseconds; two versions in the same millisecond count as equal and the later one wins, and both carry the same committed state in practice.
 
-**Reload.** On reconnect the screen clears the rows, the map and the cursor and loads the first page. A counter of loads (`generation`) makes a page that was in flight before the reload drop its result, so it can't append old rows after the new first page.
+**Reload.** On reconnect the screen reloads the page it is on, from that page's cursor. A counter of loads (`generation`) makes a page that was in flight before a newer load drop its result.
 
 Amounts arrive in minor units (cents). `money` reads how many decimals the currency has from `Intl.NumberFormat` (2 for BRL and USD, 0 for JPY) and divides by that power of ten, so a zero-decimal currency doesn't come out a hundred times too small. Stripe has a few currencies whose minor unit differs from ISO 4217 (ISK and UGX are sent with two decimals that ISO doesn't have), and those would show 100 times too large; test-mode payments here are USD, so the code review's suggestion of a Stripe exception table was not taken. A new formatter is built per amount; caching one per currency would save work nobody notices at 50 rows.
 
@@ -110,6 +115,8 @@ Since task 5.6 each entry also shows its trace ID, the operation ID to search in
 
 A table of `GET /api/dead-letters`: enqueue time (when the message entered the queue, not when it was dead-lettered, which Service Bus doesn't expose on the message), event ID, reason, description, last failure, deliveries and a Reprocess button per row.
 
+**Pages.** The endpoint returns at most 100 messages in one response, with no cursor, so the screen pages them in the browser, 20 at a time, and every page number is known. A reload (from `QueueStats`, Refresh or a reprocess) keeps the page, or moves to the last one if the list got shorter.
+
 **Last failure.** `MaxDeliveryCountExceeded` alone doesn't say why 5 deliveries failed. Since task 5.5 the worker leaves the use case's reason on the message when it abandons after a transient error or a concurrency conflict (`docs/code/PaymentEventsWorker.md`), so a database that stayed down shows its reason there, and a poison message shows nothing in that column. The value starts with the delivery it came from (`Delivery 5: ...`); a lower number means the later deliveries failed with an exception that left no reason.
 
 **Admin key.** Reprocess needs `X-Admin-Key` (section 8). The key is typed in a password field and kept in a module variable: it survives moving between screens and is gone when the page reloads. It is not stored in `localStorage`, where it would outlive the tab and be readable by any script on the origin. The responses: `202` says the event is back in the queue and reloads the list, `401` says "Wrong admin key.", `404` says the event is no longer in the dead-letter and reloads (another reprocess took it, or a concurrent one holds its lock, `docs/code/ServiceBusDeadLetterQueue.md`). No confirmation dialog: a reprocess is safe to repeat, because the inbox turns an event already applied into a duplicate.
@@ -117,6 +124,22 @@ A table of `GET /api/dead-letters`: enqueue time (when the message entered the q
 **Refresh.** The list reloads when the dead-lettered count in `QueueStats` changes from the previous message, and on reconnect, and has a Refresh button. Listing only peeks Service Bus and never reaches the database, so following the count costs nothing on the free database. The first `QueueStats` reloads too: a message dead-lettered between the first load and that message would otherwise be missed (code review). A count stuck at `countLimit` (1000) stops showing changes; the list shows at most 100 anyway, and Refresh still works. A load that succeeds clears the error of a failed one, but not the message of a reprocess.
 
 A reprocessed poison message comes back after 5 more deliveries with a new sequence number, so the row returns a few seconds later; that is the poison message doing what it does, not the reprocess failing.
+
+## Layout
+
+Task 6.5 made the four screens work from 375 px wide (a small phone) to a desktop screen without a horizontal page scroll. A headless browser script (not versioned) loaded each screen at 375 and 1440 px and compared the page's `scrollWidth` with the viewport. Before the task, the payments table needed 610 px, the payment detail 480 px and the dead-letter table 861 px at 375 px.
+
+**Tables scroll inside their own box.** Each table sits in a `.table-wrap` with `overflow-x: auto`, and its cells stay on one line, so on a phone the table scrolls sideways and the page doesn't. Stacking each row as a card under a breakpoint was the alternative; it needs a label on every cell and a second layout to maintain, for a dashboard that the demo shows on a desktop. Letting cells wrap to fit 375 px was tried first: dates and IDs broke over several lines and a row grew to four times its height. The dead-letter description and last failure are free text, so they wrap, with a 10rem minimum; at 14rem the table no longer fit the desktop width and pushed Reprocess out of view.
+
+**Long IDs break anywhere outside tables.** A payment ID in the detail title, and event IDs, trace IDs and event types in the timeline and the feed, have no spaces, so `overflow-wrap: anywhere` lets them break. Inside a table they keep `normal`, or the browser shrinks the column to a few characters and breaks the ID on every line.
+
+**Operations console look.** A dark sidebar holds the navigation (with inline SVG icons, so no icon font or CDN) and the connection status; each screen starts with a `pageHeader` (title, one line of context, actions such as the admin key), then metric cards and white cards holding the tables and lists. It reads as the back-office tool the project is. Colors and sizes are custom properties on `:root`; fonts are the system's, since the API serves the dashboard with no external dependency and a web font would be the first. Below 800 px the sidebar becomes a top bar with the navigation on its own row, and below 400 px the icons are hidden so the three links fit. The sidebar column is painted by the `.shell` background, so it reaches the bottom on long pages. The content is capped at 80rem (`--content-width`); at 72rem the dead-letter table next to the sidebar no longer fit 1440 px.
+
+**Current section.** The router marks the current link with `aria-current="page"` (the payment detail counts as Payments), which screen readers announce and the CSS highlights. The pager marks the current page the same way.
+
+**Status colors.** `statusBadge` adds a tone to the badge: green for `Paid`, red for `Failed`, yellow for the states that wait on someone (`RequiresAction`, `Processing`), blue for the refunds and gray for `Created`, `Canceled` and anything unknown. The label always shows, so the color is never the only cue.
+
+**Loading and empty states.** The payments screen, the detail and the dead-letter screen show "Loading…" until their first load ends, so a slow first load (the free database resuming in the cloud) doesn't look like an empty screen; a failed load shows a red banner. A card footer with no pager (one page only) is hidden by `:has`, which every current browser supports.
 
 ## Text only through `textContent`
 

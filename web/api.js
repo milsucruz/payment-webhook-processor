@@ -1,6 +1,9 @@
-export async function listPayments(cursor) {
-    const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
-    return getJson(`/api/payments${query}`);
+export async function listPayments(cursor, limit) {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) {
+        query.set('cursor', cursor);
+    }
+    return getJson(`/api/payments?${query}`);
 }
 
 export async function getPayment(paymentIntentId) {
